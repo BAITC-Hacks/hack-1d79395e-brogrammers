@@ -95,10 +95,16 @@ def _max_payer_share(graph: nx.DiGraph, gid: int, in_kzt: float) -> float:
 def _signals(role: str, row, from_key: int, to_key: int) -> list[str]:
     """Two or three plain, numeric observations supporting the role."""
     if role == "coordinator":
+        degrees = f"связей вход/выход {row.in_deg}/{row.out_deg}"
+        keys = f"ключевых соседей {from_key}→{to_key}"
+        if row.in_deg >= CONS_MIN_IN_DEG and row.out_deg >= DIST_MIN_OUT_DEG:
+            return [
+                degrees + f" (порог {CONS_MIN_IN_DEG}/{DIST_MIN_OUT_DEG})",
+                keys,
+            ]
         return [
-            f"входящих связей {row.in_deg}",
-            f"исходящих связей {row.out_deg}",
-            f"ключевых соседей {from_key}→{to_key}",
+            keys + f" (порог {COORD_MIN_KEY_LINKS}/{COORD_MIN_KEY_LINKS})",
+            degrees,
         ]
     if role == "payer":
         return [
@@ -125,6 +131,12 @@ def _signals(role: str, row, from_key: int, to_key: int) -> list[str]:
             f"маршрутов seed {row.seed_exp_chrono}",
         ]
     if role == "terminal":
+        if row.depth == 4:
+            return [
+                f"оценка 1−p_forward={1 - _fraction(row.p_forward):.0%} "
+                f"по калибровке (порог {TRUNC_TERMINAL_MIN_P:.0%})",
+                "колено 4, исходящие не видны",
+            ]
         return [
             f"колено {row.depth}",
             f"исходящих связей {row.out_deg}",
@@ -149,6 +161,12 @@ def _counter_signals(
         if reason:
             detail += f", {reason}"
         counters.append((f"исключён: {detail} по данным АБС", "исключён по данным АБС"))
+    if row.depth == 4:
+        pct = 100 * _fraction(row.p_forward)
+        counters.append((
+            f"обрезан 4-м коленом, p_forward = {pct:.0f}%",
+            f"обрыв 4-го колена, p={pct:.0f}%",
+        ))
     if external_funding:
         ratio = _number(row.pass_through)
         counters.append((
@@ -178,12 +196,6 @@ def _counter_signals(
             f"крупнейший плательщик дал {largest_pct:.0f}% входящих "
             f"(HHI {row.in_hhi:.2f})",
             f"1 плательщик {largest_pct:.0f}%",
-        ))
-    if row.depth == 4:
-        pct = 100 * _fraction(row.p_forward)
-        counters.append((
-            f"обрезан 4-м коленом, p_forward = {pct:.0f}%",
-            f"обрыв 4-го колена, p={pct:.0f}%",
         ))
     if aggregator_like:
         counters.append((

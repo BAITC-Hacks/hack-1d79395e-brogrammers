@@ -24,10 +24,20 @@ def _percentile(values: pd.Series) -> pd.Series:
     return values.rank(method="average", pct=True).fillna(0.0)
 
 
-def _first_counter(value: object) -> str:
-    if pd.isna(value) or not str(value).strip():
-        return "только даты и 4 колена"
-    return str(value).split(" | ", 1)[0].strip()
+def _priority_counter(row) -> str:
+    value = getattr(row, "counter_signals", "")
+    if pd.notna(value) and str(value).strip():
+        return str(value).split(" | ", 1)[0].strip()
+    if row.in_kzt > 0 and row.tracked_in < row.in_kzt * (1 - 1e-9):
+        untracked = max(0.0, 1 - row.tracked_in / row.in_kzt)
+        return (
+            f"{untracked:.1%} входящих не атрибутировано seed; "
+            "маршрут по датам не доказывает происхождение средств"
+        )
+    return (
+        "специфический контр-сигнал не выявлен; атрибуция модельная, "
+        "маршрут по датам не доказывает происхождение средств"
+    )
 
 
 def score_priority(
@@ -88,10 +98,25 @@ def score_priority(
         ]
         components.sort(key=lambda pair: (-pair[0], pair[1]))
         major = ", ".join(f"{label} {value:.2f}" for value, label in components[:3])
-        counter = _first_counter(getattr(row, "counter_signals", ""))
-        role_label = getattr(row, "role_label", str(row.role))
+        counter = _priority_counter(row)
+        role_label = getattr(row, "role_label", row.role)
+        if row.in_deg > 0 and row.out_deg > 0:
+            connectivity = (
+                f"потеря seed-достижимости при удалении {row.prio_brokerage:.2%}"
+            )
+        else:
+            connectivity = (
+                "компонент связности не учитывается: "
+                "нет входящих или исходящих связей"
+            )
         why.append(
-            f"{role_label}: {major}; множитель {row.prio_multiplier:.2f}. "
+            f"{role_label}; связи вход/выход {row.in_deg}/{row.out_deg}; "
+            f"деньги курьеров: модельно атрибутировано {row.tracked_in:,.0f} ₸, "
+            f"seed с маршрутом {row.seed_exp_chrono:g}; "
+            f"{connectivity}; "
+            f"быстро отправлено {row.fast_out_share:.0%}, "
+            f"пик плательщиков за день {row.max_sync_payers:g}. "
+            f"Вклады в приоритет: {major}; множитель {row.prio_multiplier:.2f}. "
             f"Контр: {counter}."
         )
     result["why"] = why

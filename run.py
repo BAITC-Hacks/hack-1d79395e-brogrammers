@@ -9,7 +9,7 @@ from pathlib import Path
 from time import perf_counter
 
 from graf import (
-    check, clusters, features, fingerprints, flow, priority, resilience,
+    check, clusters, config, features, fingerprints, flow, priority, resilience,
     roles, temporal, truncation,
 )
 from graf.evidence_xlsx import build_evidence
@@ -109,6 +109,10 @@ def main() -> None:
     meta = {
         "data_dir": str(args.data),
         "out_dir": str(args.out),
+        "parameters": {
+            name: value for name, value in sorted(vars(config).items())
+            if name.isupper()
+        },
         "stages_sec": stage_times,
         "skipped_stages": skipped,
         "total_sec": round(perf_counter() - started, 4),

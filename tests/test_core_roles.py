@@ -146,3 +146,25 @@ def test_run_replaces_features_and_preserves_existing_columns(tmp_path: Path):
     assert len(context["features"]) == len(features)
     assert context["features"]["marker"].eq(42).all()
     assert context["features"]["gid"].tolist() == features["gid"].tolist()
+
+
+def test_boundary_terminal_explains_estimate_before_other_counters(tmp_path: Path):
+    features, graph = _case()
+    features.loc[features.gid.eq(7), "in_hhi"] = 1.0
+    result = assign_roles(features, graph, tmp_path / "missing.csv").set_index("gid")
+    evidence = result.loc[7, "evidence"]
+    assert result.loc[7, "role"] == "terminal"
+    assert result.loc[7, "role_score"] == pytest.approx(0.8)
+    assert "оценка 1−p_forward=80%" in evidence
+    assert "по калибровке" in evidence
+    assert "исходящие не видны" in evidence
+    assert "Контр: обрыв 4-го колена" in evidence
+    assert len(evidence) <= 200
+
+
+def test_coordinator_evidence_names_the_gate_that_actually_passed(tmp_path: Path):
+    features, graph = _case()
+    result = assign_roles(features, graph, tmp_path / "missing.csv").set_index("gid")
+    assert "ключевых соседей 3→3 (порог 3/3)" in result.loc[12, "evidence"]
+    assert "связей вход/выход 3/3" in result.loc[12, "evidence"]
+    assert "связей вход/выход 5/10 (порог 5/10)" in result.loc[1, "evidence"]

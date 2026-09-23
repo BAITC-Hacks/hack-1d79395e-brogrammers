@@ -42,7 +42,24 @@ def test_priority_uses_components_and_counter_signal_multipliers():
     assert result.loc[3, "priority_score"] == 0.0
     assert result.loc[2, "rank"] == 1
     assert "Контр: seed" in result.loc[1, "why"]
-    assert "деньги курьеров" in result.loc[2, "why"]
+    why = result.loc[2, "why"]
+    assert "деньги курьеров" in why
+    assert "атрибутировано 100,000 ₸" in why
+    assert "seed с маршрутом 2" in why
+    assert "связи вход/выход 5/1" in why
+    assert "потеря seed-достижимости при удалении 50.00%" in why
+    assert "50.0% входящих не атрибутировано seed" in why
+    assert "не доказывает происхождение" in why
+
+    # Reachable endpoints still lose themselves when removed. A disabled score
+    # component must not be described as a measured zero connectivity loss.
+    terminal = features.iloc[[1]].assign(
+        out_deg=0, role="terminal", role_label="конечный получатель"
+    )
+    endpoint = score_priority(terminal, {2: 0.1}).iloc[0]
+    assert endpoint.prio_brokerage == 0
+    assert "компонент связности не учитывается" in endpoint.why
+    assert "потеря seed-достижимости при удалении 0.00%" not in endpoint.why
 
 
 def test_outputs_keep_final_cluster_hypothesis_and_write_requests(tmp_path):

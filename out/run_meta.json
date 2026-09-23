@@ -1,23 +1,88 @@
 {
   "data_dir": "data",
   "out_dir": "out",
+  "parameters": {
+    "AGG_MAX_HHI": 0.15,
+    "AGG_MIN_ACTIVE_DAYS": 12,
+    "AGG_MIN_IN_DEG": 10,
+    "AGG_MIN_ONE_OFF": 0.8,
+    "AMBIGUOUS_MARGIN": 0.1,
+    "CHRONO_GAPS": {
+      "any": 31,
+      "7d": 7,
+      "2d": 2
+    },
+    "CONF_LEVELS": [
+      0.5,
+      0.75
+    ],
+    "CONS_MIN_IN_DEG": 5,
+    "COORD_MIN_KEY_LINKS": 3,
+    "DIST_MIN_OUT_DEG": 10,
+    "EXT_FUNDING_MAX_TRACKED_OUT": 0.1,
+    "EXT_FUNDING_PT": 2.0,
+    "FAST_DAYS": 2,
+    "HHI_DOMINANT": 0.5,
+    "MULT": {
+      "no_chrono": 0.5,
+      "external_funding": 0.7,
+      "seed": 0.6,
+      "seed_above_bottom": 0.8,
+      "payer": 0.2,
+      "excluded": 0.0
+    },
+    "NEAR_THRESHOLD": [
+      5000,
+      7000
+    ],
+    "PATH_GAP_DAYS": 7,
+    "PAYER_MAX_KZT": 100000,
+    "PAYER_MAX_OUT_DEG": 2,
+    "PAYER_MAX_OUT_TX": 2,
+    "PAYER_TARGET_MIN_IN_DEG": 5,
+    "PRIORITY_WEIGHTS": {
+      "role": 0.3,
+      "money": 0.3,
+      "brokerage": 0.2,
+      "volume": 0.1,
+      "temporal": 0.1
+    },
+    "RANDOM_SEED": 42,
+    "ROLE_WEIGHT": {
+      "coordinator": 1.0,
+      "consolidator": 0.8,
+      "distributor": 0.7,
+      "transit": 0.5,
+      "terminal": 0.3,
+      "peripheral": 0.1,
+      "payer": 0.05
+    },
+    "SYNC_MIN_PAYERS": 3,
+    "TERMINAL_PT_MAX": 0.1,
+    "TOP_N": 30,
+    "TRANSIT_PT": [
+      0.8,
+      1.2
+    ],
+    "TRUNC_TERMINAL_MIN_P": 0.6
+  },
   "stages_sec": {
-    "load": 0.1319,
-    "features": 5.1642,
-    "temporal": 0.2876,
-    "truncation": 0.0145,
-    "flow": 0.2105,
-    "roles": 0.1425,
-    "clusters": 0.555,
-    "fingerprints": 0.5254,
-    "priority": 0.8372,
-    "resilience": 0.6541,
-    "outputs": 15.8463,
-    "evidence_xlsx": 0.8548,
-    "check": 0.146
+    "load": 0.0928,
+    "features": 5.0116,
+    "temporal": 0.3224,
+    "truncation": 0.0146,
+    "flow": 0.187,
+    "roles": 0.1165,
+    "clusters": 0.474,
+    "fingerprints": 0.6011,
+    "priority": 0.8876,
+    "resilience": 0.5848,
+    "outputs": 17.7705,
+    "evidence_xlsx": 0.9621,
+    "check": 0.1386
   },
   "skipped_stages": [],
-  "total_sec": 25.3703,
+  "total_sec": 27.1639,
   "rows": {
     "nodes_roles": 2248,
     "clusters": 107,
