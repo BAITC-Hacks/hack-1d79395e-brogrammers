@@ -3,6 +3,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+from time import perf_counter
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import networkx as nx
@@ -13,7 +14,35 @@ from ui.data import load_raw, OPTIONAL, json_records
 from ui.theme import LABELS
 
 
+def sample_paths(target, incoming, seeds):
+    """Up to three distinct real date-ordered paths, without invented edges."""
+    found, signatures = [], set()
+
+    def visit(current, reverse_ids, reverse_days, reverse_amounts):
+        if len(found) >= 3:
+            return
+        if current in seeds and reverse_amounts:
+            path = (list(reversed(reverse_ids)), list(reversed(reverse_days)), list(reversed(reverse_amounts)))
+            signature = tuple(path[0]), tuple(path[1]), tuple(path[2])
+            if signature not in signatures:
+                signatures.add(signature)
+                found.append(path)
+            return
+        if len(reverse_amounts) == 4 or current not in incoming:
+            return
+        for r in incoming[current].itertuples():
+            day = int(r.date.day)
+            if int(r.src) in reverse_ids or (reverse_days and not 0 <= reverse_days[-1]-day <= 7):
+                continue
+            visit(int(r.src), reverse_ids+[int(r.src)], reverse_days+[day], reverse_amounts+[float(r.sum_kzt)])
+            if len(found) >= 3:
+                break
+    visit(target, [target], [], [])
+    return found
+
+
 def make_stubs(data_dir, out_dir="out_stub"):
+    started = perf_counter()
     root = Path(out_dir)
     if root.resolve().name == "out":
         raise ValueError("Заглушку запрещено писать в out/. Используйте out_stub/.")
@@ -66,6 +95,20 @@ def make_stubs(data_dir, out_dir="out_stub"):
     nodes["signals"] = "ЗАГЛУШКА: сигналы не вычислены | Метрики степеней и сумм — из исходных рёбер"
     nodes["counter_signals"] = "ЗАГЛУШКА: роль и денежный след случайны, не использовать для проверки"
     nodes["evidence"] = [f"ЗАГЛУШКА: {r.in_deg} плательщиков, {r.out_deg} получателей; роль случайна (seed=42)." for r in nodes.itertuples()]
+    incoming = {int(dst): g.sort_values(["date", "src", "sum_kzt"]) for dst, g in tx.groupby("dst")}
+    seeds = set(nodes.loc[nodes.is_seed, "gid"].astype(int))
+    examples = {}
+    # Mock ranking deliberately exercises three real paths per card, without
+    # claiming these random scores are an analytical prioritisation.
+    for target in nodes.loc[~nodes.role.eq("payer")].sort_values(["priority_score", "gid"], ascending=[False, True]).gid.astype(int):
+        candidate = sample_paths(target, incoming, seeds)
+        if len(candidate) == 3:
+            examples[target] = candidate
+        if len(examples) == 30:
+            break
+    nodes["priority_score"] *= .5
+    for gid, score in zip(examples, np.linspace(.99, .75, len(examples))):
+        nodes.loc[nodes.gid.eq(gid), "priority_score"] = score
     nodes = nodes.sort_values(["priority_score", "gid"], ascending=[False, True]).reset_index(drop=True)
     nodes["rank"] = np.arange(1, len(nodes) + 1)
     required = ["gid", "role", "role_score", "cluster_id", "priority_score", "evidence"]
@@ -90,30 +133,12 @@ def make_stubs(data_dir, out_dir="out_stub"):
         cluster_rows.append(row)
     tables["clusters"] = pd.DataFrame(cluster_rows)
     # Real directed, date-ordered paths; role/tracked scores remain mock data.
-    incoming = {int(dst): g.sort_values(["date", "src"]) for dst, g in tx.groupby("dst")}
-    seeds = set(nodes.loc[nodes.is_seed, "gid"].astype(int))
     paths = []
     for target in top.gid.astype(int):
-        found = []
-        def visit(current, reverse_ids, reverse_days, reverse_amounts):
-            if len(found) >= 3:
-                return
-            if current in seeds and reverse_amounts:
-                found.append((list(reversed(reverse_ids)), list(reversed(reverse_days)), list(reversed(reverse_amounts))))
-                return
-            if len(reverse_amounts) == 4 or current not in incoming:
-                return
-            for r in incoming[current].itertuples():
-                day = int(r.date.day)
-                if int(r.src) in reverse_ids or (reverse_days and not 0 <= reverse_days[-1] - day <= 7):
-                    continue
-                visit(int(r.src), reverse_ids + [int(r.src)], reverse_days + [day], reverse_amounts + [float(r.sum_kzt)])
-                if len(found) >= 3:
-                    break
-        visit(target, [target], [], [])
+        found = examples.get(target) or sample_paths(target, incoming, seeds)
         for rank, (ids, days, amounts) in enumerate(found, 1):
             paths.append(dict(target_gid=target, path_rank=rank, seed_gid=ids[0], hops=len(amounts),
-                              path_gids=">".join(map(str, ids)), path_days=">".join(map(str, days)),
+                              path_gids=">".join(map(str, ids)), path_days=">".join(map(str, [days[0]]+days)),
                               path_amounts=">".join(map(str, amounts)), bottleneck_kzt=min(amounts)))
     tables["paths"] = pd.DataFrame(paths, columns=OPTIONAL["paths"])
     resilience = [dict(strategy=s, n_removed=n, seed_reach_share=max(0, 1-n*k), largest_wcc=max(0,len(nodes)-n*3))
@@ -140,7 +165,8 @@ def make_stubs(data_dir, out_dir="out_stub"):
     graph_edges = [dict(src=str(r.src), dst=str(r.dst), sum_kzt=float(r.sum_kzt), n_tx=int(r.n_tx), tracked_kzt=0.0,
                         first_day=int(dates.loc[(r.src,r.dst), "min"].day), last_day=int(dates.loc[(r.src,r.dst), "max"].day))
                    for r in edges.itertuples(index=False)]
-    meta = dict(stub=True, random_seed=42, n_nodes=len(nodes), n_edges=len(edges), n_tx=len(tx), total_sec=None,
+    meta = dict(stub=True, random_seed=42, n_nodes=len(nodes), n_edges=len(edges), n_tx=len(tx), total_sec=round(perf_counter()-started, 3),
+                stage_seconds={"stub": round(perf_counter()-started, 3)}, parameters={"random_seed": 42, "n_clusters": 20, "path_gap_days": 7},
                 note="ЗАГЛУШКА Б: роли/скоры/след/устойчивость не являются результатами анализа")
     (root / "graph.json").write_text(json.dumps(dict(meta=meta, nodes=graph_nodes, edges=graph_edges), ensure_ascii=False), encoding="utf-8")
     (root / "run_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
