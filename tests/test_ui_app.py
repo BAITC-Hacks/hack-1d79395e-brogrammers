@@ -60,6 +60,17 @@ def test_isolated_seed_is_viewable(app):
     assert any("Показано 1 из 1" in c.value for c in app.caption)
 
 
+def test_map_card_action_survives_plotly_rerender(app):
+    gid = str(load_bundle("out_stub").tables["top_nodes"].iloc[0].gid)
+    app.session_state["pending_gid"] = gid
+    app.run()
+    app.radio(key="page").set_value("Карта по коленам").run()
+    app.run()  # selection event may be empty after the new figure is mounted
+    assert not app.exception
+    next(b for b in app.button if b.label == f"Открыть узел {gid}").click().run()
+    assert app.radio(key="page").value == "Узел" and app.session_state["gid"] == gid
+
+
 def test_no_data_clear_message(tmp_path, monkeypatch):
     monkeypatch.setenv("GRAF_OUT", str(tmp_path / "missing"))
     app = AppTest.from_file(APP, default_timeout=20).run()

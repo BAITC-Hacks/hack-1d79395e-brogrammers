@@ -123,7 +123,10 @@ class GraphTools:
         if rows.empty:
             raise ValueError("Кластер отсутствует")
         record = json_records(rows)[0]
-        return {"gids": [g for g in str(record.get("top_gids", "")).split(";") if re.fullmatch(r"\d{18}", g)], "cluster": record}
+        # Hypotheses may cite members outside top_gids; validate against actual membership.
+        members = set(self.nodes.loc[self.nodes.cluster_id.eq(cluster_id), "gid"].astype(str))
+        mentioned = set(re.findall(r"(?<!\d)\d{18}(?!\d)", json.dumps(record, ensure_ascii=False)))
+        return {"gids": sorted(mentioned & members), "cluster": record}
 
     def dispatch(self, name, arguments):
         if name not in {t["name"] for t in TOOLS}:

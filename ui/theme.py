@@ -31,3 +31,10 @@ def inject_style(st):
       padding:16px; color:#122237; border:1px solid #dce4ed}
     [data-testid="stSidebar"] {border-right:1px solid #dce4ed}
     </style>""", unsafe_allow_html=True)
+
+
+def stretch(component):
+    """Use current Streamlit sizing while keeping the original minimum version usable."""
+    from inspect import signature
+    width = signature(component).parameters.get("width")
+    return {"width": "stretch"} if width is not None and width.default in ("stretch", "content") else {"use_container_width": True}

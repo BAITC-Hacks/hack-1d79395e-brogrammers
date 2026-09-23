@@ -182,7 +182,9 @@ def chronology_filter(nodes, tx, gap_days, ready=False):
         if column is None or column not in nodes:
             raise ValueError("До готовности A2 доступны только готовые колонки seed_exp_fast / seed_exp_chrono для Δ=2 и Δ=31")
         return nodes.set_index("gid")[column].to_dict(), f"Готовая колонка выгрузки: Δ={gap_days} дней (без пересчёта A2)"
-    if not ready:
+    if tx is None and ready and gap_days not in (2, 31):
+        raise ValueError("Для пересчёта этого Δ нужны transactions.parquet; без них доступны сохранённые Δ=2 и Δ=31")
+    if not ready or tx is None:
         return fallback()
     try:
         from graf.flow import chrono_reach
@@ -190,8 +192,6 @@ def chronology_filter(nodes, tx, gap_days, ready=False):
         if exc.name not in {"graf", "graf.flow"}:
             raise
         return fallback()
-    if tx is None:
-        raise ValueError("Для пересчёта Δ нужны transactions.parquet")
     seeds = set(nodes.loc[nodes.is_seed, "gid"].astype(int))
     try:
         return chrono_reach(tx, seeds, gap_days, max_hops=4), f"Хронологический маршрут: Δ≤{gap_days} дней"

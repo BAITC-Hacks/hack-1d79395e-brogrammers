@@ -2,7 +2,34 @@ import pandas as pd
 import plotly.express as px
 
 from ui.data import display_frame
-from ui.theme import LABELS
+from ui.theme import LABELS, stretch
+from ui.criteria import role_criteria, ROLE_ORDER
+
+FEATURE_LABELS = {
+    "visibility": "Наблюдаемость", "excluded": "Исключён по данным банка", "aggregator_like": "Проверить тип счёта в АБС",
+    "truncated": "Обрыв исходящих на колене 4", "p_forward": "Оценка вероятности продолжения за границей",
+    "is_seed": "Исходный клиент (seed)", "in_deg": "Разных плательщиков", "out_deg": "Разных получателей",
+    "in_kzt": "Входящая сумма в выгрузке, ₸", "out_kzt": "Исходящая сумма в выгрузке, ₸",
+    "tracked_in": "Атрибутированный вход от seed, ₸", "tracked_share_in": "Доля атрибутированного входа",
+    "seed_exp_topo": "Seed с путём по структуре", "seed_exp_chrono": "Seed с маршрутом по датам",
+    "seed_exp_fast": "Seed с маршрутом ≤2 дней", "from_key": "Ключевых плательщиков", "to_key": "Ключевых получателей",
+}
+VISIBILITY_LABELS = {"full": "Полная в пределах выгрузки", "out_unseen": "Исходящие за коленом 4 не собраны",
+                     "in_unseen_seed": "Входящие seed неполны", "external_funding": "Есть финансирование извне наблюдаемого потока"}
+
+
+def feature_value(name, value):
+    if pd.isna(value):
+        return "Нет данных"
+    if name == "visibility":
+        return VISIBILITY_LABELS.get(value, str(value))
+    if name in {"excluded", "aggregator_like", "truncated", "is_seed"}:
+        return "Да" if value else "Нет"
+    if name in {"p_forward", "tracked_share_in"}:
+        return f"{float(value):.1%}"
+    if name in {"in_kzt", "out_kzt", "tracked_in"}:
+        return f"{float(value):,.0f}"
+    return str(value)
 
 
 def counterparties(tx, gid, direction):
@@ -12,7 +39,7 @@ def counterparties(tx, gid, direction):
             .sort_values(["sum_kzt", peer], ascending=[False, True]).head(5))
 
 
-def render_card(st, row, bundle, tx):
+def render_card(st, row, bundle, tx, graph_renderer=None):
     gid = int(row["gid"])
     st.subheader(row["role_label"])
     cols = st.columns(3)
@@ -23,7 +50,14 @@ def render_card(st, row, bundle, tx):
     if row.get("ambiguous", False):
         alternative = row.get("role_alt", "не передана")
         st.warning(f"Неоднозначная роль. Альтернатива: {LABELS.get(alternative, alternative)}")
+    st.markdown("**Почему проверить этот узел**")
+    top = bundle.tables["top_nodes"]
+    ranked = top.loc[top.gid.eq(gid)]
+    if not ranked.empty:
+        st.write(str(ranked.iloc[0].why))
     st.info(row["evidence"])
+    if row.get("depth") == 4:
+        st.warning("Исходящие на четвёртом колене не собраны. Нулевой выход не доказывает, что деньги остались у клиента; роль конечного получателя здесь — оценка по калибровке.")
     left, right = st.columns(2)
     with left:
         st.markdown("**Сигналы**")
@@ -32,23 +66,48 @@ def render_card(st, row, bundle, tx):
                 st.write(f"• {text}")
     with right:
         st.markdown("**Контр-сигналы**")
-        for text in str(row.get("counter_signals", "Контр-сигналы не переданы")).split(" | "):
-            if text and text != "nan":
-                st.write(f"⚠ {text}")
+        counters = [t for t in str(row.get("counter_signals", "")).split(" | ") if t and t != "nan"]
+        if not counters and not ranked.empty and "Контр:" in str(ranked.iloc[0].why):
+            counters = [str(ranked.iloc[0].why).split("Контр:", 1)[1].strip()]
+        for text in counters:
+            st.write(f"⚠ {text}")
+        if not counters:
+            st.caption("Отдельные контр-сигналы не сформированы; общие ограничения выгрузки сохраняются.")
+    requests = bundle.tables["data_requests"]
+    st.markdown("**Что запросить дальше**")
+    selected_requests = requests.loc[requests.gid.eq(gid)]
+    if selected_requests.empty:
+        st.caption("Специальные запросы не сформированы. Сверьте основание роли и ограничения выгрузки перед решением.")
+    for r in selected_requests.itertuples():
+        st.write(f"• {r.request}: {r.reason}")
+    st.caption("Справку с переводами и запросами можно скачать во вкладке «Доказательства» → «Только выбранный узел».")
+    if graph_renderer:
+        st.markdown("**Связи выбранного узла**")
+        graph_renderer()
+    with st.expander("Точное правило роли и порядок выбора"):
+        rule = next(r for r in role_criteria() if r["роль"] == row["role"])
+        st.write(rule["ворота"])
+        st.write("Скор: " + rule["скор"])
+        st.caption(ROLE_ORDER)
     components = {c.removeprefix("prio_"): row[c] for c in ["prio_role", "prio_money", "prio_brokerage", "prio_volume", "prio_temporal"] if c in row and pd.notna(row[c])}
     if components:
-        frame = pd.DataFrame({"Компонент": components.keys(), "Вклад": components.values()})
-        st.plotly_chart(px.bar(frame, x="Вклад", y="Компонент", orientation="h", color_discrete_sequence=["#193f64"]), use_container_width=True)
+        names = {"role": "Роль", "money": "След денег seed", "brokerage": "Потеря достижимости", "volume": "Оборот", "temporal": "Временные признаки"}
+        frame = pd.DataFrame({"Компонент": [names.get(k, k) for k in components], "Вклад": components.values()})
+        st.plotly_chart(px.bar(frame, x="Вклад", y="Компонент", orientation="h", color_discrete_sequence=["#193f64"]), **stretch(st.dataframe))
         st.caption(f"Множитель приоритета: {row.get('prio_multiplier', 'не передан')}")
-    details = [c for c in ["visibility", "excluded", "aggregator_like", "truncated", "p_forward", "is_seed", "in_deg", "out_deg", "in_kzt", "out_kzt", "tracked_in", "tracked_share_in", "seed_exp_topo", "seed_exp_chrono", "seed_exp_fast"] if c in row]
+    details = [c for c in FEATURE_LABELS if c in row and (c != "p_forward" or row.get("depth") == 4)]
     with st.expander("Признаки, наблюдаемость и прослеживаемый поток", expanded=True):
-        st.dataframe(pd.DataFrame({"Признак": details, "Значение": [str(row[c]) for c in details]}), hide_index=True, use_container_width=True)
+        st.dataframe(pd.DataFrame({"Признак": [FEATURE_LABELS[c] for c in details], "Значение": [feature_value(c, row[c]) for c in details]}), hide_index=True, **stretch(st.dataframe))
     if tx is not None:
         left, right = st.columns(2)
         for column, direction, title in [(left,"in","Топ-5 входящих"),(right,"out","Топ-5 исходящих")]:
             with column:
                 st.markdown(f"**{title}**")
-                st.dataframe(display_frame(counterparties(tx, gid, direction)), hide_index=True, use_container_width=True)
+                st.dataframe(display_frame(counterparties(tx, gid, direction)), hide_index=True, **stretch(st.dataframe),
+                             column_config={"src": "Плательщик (gid)", "dst": "Получатель (gid)",
+                                            "sum_kzt": st.column_config.NumberColumn("Сумма, ₸", format="%.0f"),
+                                            "n_tx": "Переводов", "first_date": st.column_config.DateColumn("Первая дата", format="DD.MM.YYYY"),
+                                            "last_date": st.column_config.DateColumn("Последняя дата", format="DD.MM.YYYY")})
     else:
         st.warning("Транзакции не загружены: таблицы контрагентов и XLSX недоступны.")
     st.markdown("**Пути денег**")
@@ -64,6 +123,3 @@ def render_card(st, row, bundle, tx):
     if not cluster.empty:
         st.markdown(f"**Кластер {row['cluster_id']}**")
         st.write(cluster.iloc[0].hypothesis)
-    requests = bundle.tables["data_requests"]
-    st.markdown("**Что запросить дальше**")
-    st.dataframe(display_frame(requests.loc[requests.gid.eq(gid)]), hide_index=True, use_container_width=True)

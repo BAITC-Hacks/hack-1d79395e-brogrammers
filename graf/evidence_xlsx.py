@@ -9,6 +9,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 
 from ui.data import load_bundle, load_raw, display_frame, ID_COLUMNS
 from ui.theme import LABELS, LIMITS, DISCLAIMER
+from ui.criteria import role_criteria, ROLE_ORDER
 
 SHEETS = ["Сводка", "Признаки", "Транзакции-основания", "Пути денег", "Критерии", "Границы данных"]
 
@@ -97,25 +98,7 @@ def evidence_frames(data_dir, out_dir, gid=None):
     paths = paths.loc[paths.target_gid.isin(ids)]
     steps = expand_paths(paths)
     transactions = transaction_evidence(tx, nodes, ids, paths)
-    # The actual numerical gates/scores are owned by A; copy configuration, not a second implementation.
-    gates = {
-        "coordinator": "Комбинация входящих/исходящих либо связей с ключевыми узлами; COORD_MIN_KEY_LINKS",
-        "consolidator": "Число плательщиков ≥ CONS_MIN_IN_DEG",
-        "distributor": "Число получателей ≥ DIST_MIN_OUT_DEG",
-        "transit": "Не seed, есть вход/выход, pass_through в TRANSIT_PT",
-        "terminal": "Наблюдаемый выход: out=0 или pt<TERMINAL_PT_MAX; на границе — оценка по p_forward",
-        "payer": "Не seed; мало исходящих и небольшая сумма; получатель с большим входом; не транзит",
-        "peripheral": "Другие ворота не пройдены",
-    }
-    scores = {
-        "coordinator": "0.5 + 0.5·min(1,(from_key+to_key)/20)",
-        "consolidator": "0.4·min(1,in_deg/15)+0.2·(1-in_hhi)+0.2·min(1,max_sync_payers/5)+0.2·min(1,2·tracked_share_in)",
-        "distributor": "0.5·min(1,out_deg/40)+0.3·(1-out_hhi)+0.2·fast_out_share",
-        "transit": "0.5·(1-|1-pt|/0.2)+0.3·fast_out_share+0.2·[seed_exp_chrono>0]",
-        "terminal": "0.7+0.3·tracked_share_in; на границе: 1-p_forward",
-        "payer": "0.8", "peripheral": "0.5; при truncated: 0.3",
-    }
-    criteria = pd.DataFrame([dict(роль=role, role_label=label, ворота=gates[role], скор=scores[role], источник="docs/TEAM_PLAN.md §7.2 (спецификация)") for role,label in LABELS.items()])
+    criteria = pd.DataFrame(role_criteria()+[dict(роль="Порядок решения", ворота=ROLE_ORDER)])
     criteria = pd.concat([criteria, pd.DataFrame(config).rename(columns={"параметр": "роль", "значение": "ворота"}).assign(источник="graf.config: текущие параметры")], ignore_index=True)
     limits = [{"тип": "ограничение", "описание": text} for text in [DISCLAIMER]+LIMITS]
     limits.append({"тип": "источник", "описание": f"Выгрузки: {Path(out_dir).name}; транзакции: {Path(data_dir).name}"})
@@ -124,7 +107,9 @@ def evidence_frames(data_dir, out_dir, gid=None):
     if bundle.missing:
         limits.append({"тип": "неполная выгрузка", "описание": ", ".join(bundle.missing)})
     requests = bundle.tables["data_requests"]
-    for r in requests.loc[requests.gid.isin(ids)].itertuples():
+    if gid is not None:
+        requests = requests.loc[requests.gid.isin(ids)]
+    for r in requests.itertuples():
         limits.append({"тип": "запрос", "gid": str(r.gid), "описание": r.request, "причина": r.reason})
     return dict(zip(SHEETS, [display_frame(summary), features, display_frame(transactions), steps, criteria, pd.DataFrame(limits)]))
 

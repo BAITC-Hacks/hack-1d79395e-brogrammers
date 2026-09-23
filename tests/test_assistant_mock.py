@@ -91,3 +91,20 @@ def test_loop_budget(graph):
     result=ask_graph('Проверь','out_stub',client=NS(responses=fake),model='mock',max_rounds=1)
     assert 'лимит шагов' in result['text']
     assert validate(gid,[gid]) == gid
+
+
+def test_cluster_hypothesis_ids_outside_top_five_are_grounded():
+    graph = GraphTools('out')
+    for row in graph.bundle.tables['clusters'].itertuples():
+        result = graph.cluster_info(int(row.cluster_id))
+        mentioned = set(__import__('re').findall(r'\d{18}', str(row.hypothesis)))
+        members = set(graph.nodes.loc[graph.nodes.cluster_id.eq(row.cluster_id), 'gid'].astype(str))
+        assert mentioned <= members
+        assert mentioned <= set(result['gids'])
+        assert 'непроверенная ссылка' not in validate(str(row.hypothesis), result['gids'])
+    cid = int(graph.nodes.cluster_id.iloc[0])
+    table = graph.bundle.tables['clusters']
+    table.loc[table.cluster_id.eq(cid), 'hypothesis'] += ' 999999999999999999'
+    result = graph.cluster_info(cid)
+    assert '999999999999999999' not in result['gids']
+    assert 'непроверенная ссылка' in validate(result['cluster']['hypothesis'], result['gids'])

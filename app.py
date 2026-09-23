@@ -10,9 +10,9 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from ui.data import cached_bundle, cached_raw, fingerprint, display_frame, chronology_filter, choose_output, flow_ready
-from ui.theme import COLORS, LABELS, LIMITS, DISCLAIMER, inject_style
-from ui.graphs import directed_graph, ego_html, layer_figure
-from ui.card import render_card
+from ui.theme import COLORS, LABELS, LIMITS, DISCLAIMER, inject_style, stretch
+from ui.graphs import directed_graph, ego_html, layer_figure, selected_map_gid
+from ui.card import render_card, VISIBILITY_LABELS
 
 load_dotenv()
 st.set_page_config(page_title="Граф денег · AML", page_icon="◈", layout="wide")
@@ -56,7 +56,7 @@ def main():
         default_out = os.getenv("GRAF_OUT") or choose_output()
         out_dir = st.text_input("Папка выгрузок", value=default_out)
         data_dir = st.text_input("Исходные данные: папка или ZIP", value=os.getenv("GRAF_DATA", "data"))
-        if st.button("Обновить выгрузки", use_container_width=True):
+        if st.button("Обновить выгрузки", **stretch(st.dataframe)):
             st.cache_data.clear()
             for key in ["xlsx_all", "xlsx_node", "assistant_messages", "ai_card"]:
                 st.session_state.pop(key, None)
@@ -101,7 +101,7 @@ def main():
             if matches:
                 chosen = st.selectbox("Совпадения", matches[:100])
                 st.caption(f"Найдено {len(matches)}. Показано до 100.")
-                if st.button("Открыть узел", use_container_width=True):
+                if st.button("Открыть узел", **stretch(st.dataframe)):
                     open_node(chosen)
             else:
                 st.info("Такой gid не найден. Проверьте номер или смените папку выгрузок.")
@@ -121,7 +121,7 @@ def main():
         st.divider()
         for role, color in COLORS.items():
             st.markdown(f'<span style="color:{color}">●</span> {LABELS[role]}', unsafe_allow_html=True)
-        st.caption("Чёрная обводка — seed. Пунктирная рамка на ego-графе — неполная наблюдаемость.")
+        st.caption("Чёрная обводка — seed. Неполная наблюдаемость: контурный маркер на карте, контрастный пунктир на ego-графе.")
     filtered = nodes.loc[nodes.role.isin(roles)].copy()
     if mode == "Деньги курьеров":
         try:
@@ -143,6 +143,7 @@ def main():
                     horizontal=True, key="page", label_visibility="collapsed")
     if page == "Топ-лист":
         st.subheader("Кого проверить первым")
+        st.caption("Выберите строку → проверьте основания и ограничения → скачайте XLSX во вкладке «Доказательства». Приоритет — очередь проверки по наблюдаемому seed-потоку, не доказательство вины и не план блокировок.")
         top = bundle.tables["top_nodes"]
         top = top.loc[top.gid.isin(filtered.gid)].reset_index(drop=True)
         shown = [c for c in ["rank", "gid", "role_label", "priority_score", "confidence_level", "visibility", "why"] if c in top]
@@ -151,21 +152,24 @@ def main():
             rows = st.session_state[table_key].get("selection", {}).get("rows", [])
             if rows and rows[0] < len(top):
                 st.session_state["pending_gid"] = str(top.iloc[rows[0]].gid)
-        st.dataframe(display_frame(top[shown]), hide_index=True, use_container_width=True,
+        shown_top = display_frame(top[shown])
+        if "visibility" in shown_top:
+            shown_top["visibility"] = shown_top["visibility"].map(lambda v: VISIBILITY_LABELS.get(v, v))
+        st.dataframe(shown_top, hide_index=True, **stretch(st.dataframe),
                      on_select=select_top_row, selection_mode="single-row", key=table_key,
                      column_config={"rank": "Место", "gid": "gid", "role_label": "Роль (гипотеза)",
                                     "priority_score": st.column_config.NumberColumn("Приоритет", format="%.3f"),
                                     "confidence_level": "Уверенность", "visibility": "Наблюдаемость", "why": "Основания"})
         st.markdown("**Seed выше нижнего уровня — пересмотреть уровень**")
         st.dataframe(display_frame(bundle.tables["seeds_review"].drop(columns=["role"], errors="ignore")),
-                     hide_index=True, use_container_width=True,
+                     hide_index=True, **stretch(st.dataframe),
                      column_config={"role_label": "Роль (гипотеза)", "evidence": "Основания"})
         st.markdown("**Распределение ролей**")
         counts = nodes.role_label.value_counts().rename_axis("Роль").reset_index(name="Узлов")
-        st.dataframe(counts, hide_index=True, use_container_width=True)
+        st.dataframe(counts, hide_index=True, **stretch(st.dataframe))
         if not bundle.tables["audit"].empty:
             with st.expander("Аудит приоритетов"):
-                st.dataframe(bundle.tables["audit"], hide_index=True, use_container_width=True)
+                st.dataframe(bundle.tables["audit"], hide_index=True, **stretch(st.dataframe))
     elif page == "Узел":
         gid = st.session_state.gid
         selected = nodes.loc[nodes.gid.astype(str).eq(str(gid))]
@@ -174,8 +178,8 @@ def main():
         else:
             st.caption(f"УЗЕЛ {gid} · КАРТОЧКА ПО ПОЛНОЙ ВЫГРУЗКЕ")
             hops = st.radio("Радиус ego-графа", [1, 2], horizontal=True)
-            show_graph(nodes, edges, gid, hops)
-            render_card(st, selected.iloc[0].to_dict(), bundle, tx)
+            render_card(st, selected.iloc[0].to_dict(), bundle, tx,
+                        graph_renderer=lambda: show_graph(nodes, edges, gid, hops))
             if os.getenv("OPENAI_API_KEY") and os.getenv("OPENAI_MODEL"):
                 if st.button("AI-карточка"):
                     from graf.assistant import node_card
@@ -196,19 +200,25 @@ def main():
         else:
             network = st.checkbox("Сетевая раскладка", disabled=not bool(bundle.graph.get("nodes")))
             highlighted = st.session_state.gid if st.query_params.get("gid") else None
+            def select_map_point():
+                gid = selected_map_gid(st.session_state.get("layers"), filtered.gid)
+                if gid:
+                    st.session_state["gid"] = gid
+                    st.query_params["gid"] = gid
             fig, total_edges = layer_figure(filtered, edges, bundle.graph, highlighted, network)
-            event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key="layers")
+            st.plotly_chart(fig, **stretch(st.dataframe), on_select=select_map_point, selection_mode="points", key="layers")
             st.caption(f"Показано до 400 из {total_edges} рёбер по сумме; стрелки — у топ-100. Выбор точки открывает доступ к карточке.")
-            if event.selection.points:
-                custom = event.selection.points[0].get("customdata")
-                if custom and str(custom[0]) in ids and st.button(f"Открыть узел {custom[0]}"):
-                    open_node(custom[0])
-        st.dataframe(bundle.tables["ablation_links"], hide_index=True, use_container_width=True)
+            st.caption("Контурный маркер — неполная наблюдаемость; у seed полупрозрачная чёрная рамка. Клик выделяет узел и его соседей.")
+            # Plotly may clear selection when the highlighted figure changes. Keep the
+            # action bound to our validated gid so it survives that rerender.
+            if str(highlighted) in set(filtered.gid.astype(str)) and st.button(f"Открыть узел {highlighted}"):
+                open_node(highlighted)
+        st.dataframe(bundle.tables["ablation_links"], hide_index=True, **stretch(st.dataframe))
         st.caption("Абляция сравнивает достижимость узлов; её доли не являются долями переводов или сумм.")
-        st.dataframe(bundle.tables["tracked_by_depth"], hide_index=True, use_container_width=True)
+        st.dataframe(bundle.tables["tracked_by_depth"], hide_index=True, **stretch(st.dataframe))
     elif page == "Кластеры":
         clusters = bundle.tables["clusters"]
-        st.dataframe(clusters, hide_index=True, use_container_width=True)
+        st.dataframe(clusters, hide_index=True, **stretch(st.dataframe))
         if not clusters.empty:
             cid = st.selectbox("Кластер", clusters.cluster_id.tolist())
             row = clusters.loc[clusters.cluster_id.eq(cid)].iloc[0]
@@ -220,15 +230,16 @@ def main():
         resilience = bundle.tables["resilience"]
         st.subheader("Что меняется при удалении узлов")
         st.caption("Структурный сценарий. Не прогноз реального поведения участников сети.")
+        st.caption("Очередь AML-проверки не оптимизирует разрушение графа. Сравнение стратегий не является рекомендацией блокировать клиентов.")
         if resilience.empty:
             st.info("Ожидается resilience.csv от участника A.")
         else:
             regular = resilience.loc[resilience.strategy.ne("all_seeds")]
             st.plotly_chart(px.line(regular.sort_values("n_removed"), x="n_removed", y="seed_reach_share", color="strategy", markers=True,
-                                    labels={"n_removed": "Удалено узлов", "seed_reach_share": "Доля достижимости от seed", "strategy": "Стратегия"}), use_container_width=True)
+                                    labels={"n_removed": "Удалено узлов", "seed_reach_share": "Доля достижимости от seed", "strategy": "Стратегия"}), **stretch(st.dataframe))
             all_seeds = resilience.loc[resilience.strategy.eq("all_seeds")]
             st.markdown("**Сценарий удаления всех seed**")
-            st.dataframe(all_seeds, hide_index=True, use_container_width=True)
+            st.dataframe(all_seeds, hide_index=True, **stretch(st.dataframe))
             if not all_seeds.empty:
                 st.caption(f"Крупнейшая слабосвязная компонента после удаления seed: {int(all_seeds.iloc[0].largest_wcc)} узлов.")
     elif page == "Доказательства":
@@ -237,7 +248,7 @@ def main():
             st.warning("Для XLSX укажите исходные parquet или ZIP в боковой панели.")
         else:
             from graf.evidence_xlsx import evidence_frames, workbook_bytes, build_node_evidence
-            st.caption("Вся база: топ-30 из top_nodes.csv, связанные транзакции, пути, критерии и ограничения. По узлу: выбранный gid.")
+            st.caption("Вся база: топ-30, связанные транзакции и пути, точные критерии, ограничения и ВСЕ запросы дополнительных данных. По узлу: только выбранный gid и его запросы.")
             if st.button("Подготовить всю базу XLSX"):
                 with st.spinner("Собираю шесть листов…"):
                     try:
@@ -253,7 +264,7 @@ def main():
                 for column in ("role", "role_alt", "роль"):
                     if column in preview:
                         preview[column] = preview[column].map(lambda value: LABELS.get(value, value))
-                st.dataframe(preview, hide_index=True, use_container_width=True,
+                st.dataframe(preview, hide_index=True, **stretch(st.dataframe),
                              column_config={"date": st.column_config.DateColumn("Дата", format="DD.MM.YYYY"),
                                             "src": "Отправитель (gid)", "dst": "Получатель (gid)",
                                             "sum_kzt": st.column_config.NumberColumn("Сумма, ₸", format="%.2f")})
