@@ -87,15 +87,15 @@ def test_fingerprints_require_observed_structure_and_chronology():
     assert "12 узлов" in hypothesis and "123,000" in hypothesis
 
 
-def test_brokerage_excludes_the_removed_node_and_curve_is_repeatable():
+def test_brokerage_counts_lost_reach_and_curve_is_repeatable():
     graph = nx.DiGraph()
     graph.add_nodes_from(range(1, 7))
     graph.add_edges_from([(1, 2), (2, 3), (3, 4), (1, 5), (3, 6)])
     assert seed_reach(graph, {1}) == {2, 3, 4, 5, 6}
     losses = single_node_loss(graph, {1}, {2, 3, 5})
-    assert losses[2] == pytest.approx(3 / 5)
-    assert losses[3] == pytest.approx(2 / 5)
-    assert losses[5] == 0.0
+    assert losses[2] == pytest.approx(4 / 5)
+    assert losses[3] == pytest.approx(3 / 5)
+    assert losses[5] == pytest.approx(1 / 5)
 
     features = pd.DataFrame({
         "gid": list(range(1, 7)),

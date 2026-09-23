@@ -53,10 +53,9 @@ def single_node_loss(
     seeds: set[int] | None = None,
     candidates: set[int] | None = None,
 ) -> dict[int, float]:
-    """Share of original reachable non-seeds lost *beyond* the removed node.
+    """Share of original reachable non-seeds lost when the node is removed.
 
-    Excluding the removed node itself makes the score measure brokerage rather
-    than merely whether that account was reachable.
+    The removed reachable node is included in the loss, as in TEAM_PLAN 7.4.
     """
     seed_gids = _seed_set(graph, seeds)
     baseline = seed_reach(graph, seed_gids)
@@ -74,7 +73,7 @@ def single_node_loss(
             losses[gid] = 0.0
             continue
         after = seed_reach(graph, seed_gids, {gid})
-        losses[gid] = len((baseline - after) - {gid}) / denominator
+        losses[gid] = len(baseline - after) / denominator
     return losses
 
 

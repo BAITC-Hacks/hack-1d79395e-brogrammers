@@ -217,6 +217,9 @@ def _clusters_table(
     return table
 
 
+def _day(value):
+    return int(value) if pd.notna(value) else None
+
 def _number(value, default: float = 0.0) -> float:
     return float(value) if pd.notna(value) else default
 
@@ -246,8 +249,8 @@ def _write_graph_json(
                 "src": str(int(edge.src)), "dst": str(int(edge.dst)),
                 "sum_kzt": float(edge.sum_kzt), "n_tx": int(edge.n_tx),
                 "tracked_kzt": _number(getattr(edge, "tracked_kzt", 0.0)),
-                "first_day": str(getattr(edge, "first_day", "")),
-                "last_day": str(getattr(edge, "last_day", "")),
+                "first_day": _day(getattr(edge, "first_day", None)),
+                "last_day": _day(getattr(edge, "last_day", None)),
             }
         )
     payload = {
