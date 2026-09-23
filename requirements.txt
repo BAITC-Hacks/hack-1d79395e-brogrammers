@@ -1,0 +1,12 @@
+pandas>=2.1
+pyarrow>=14
+numpy>=1.26
+scipy>=1.11
+networkx>=3.2
+streamlit>=1.36
+plotly>=5.20
+pyvis>=0.3.2
+openpyxl>=3.1
+openai>=1.40
+python-dotenv>=1.0
+pytest>=8
