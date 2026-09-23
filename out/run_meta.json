@@ -1,0 +1,30 @@
+{
+  "data_dir": "data",
+  "out_dir": "out",
+  "stages_sec": {
+    "load": 0.1319,
+    "features": 5.1642,
+    "temporal": 0.2876,
+    "truncation": 0.0145,
+    "flow": 0.2105,
+    "roles": 0.1425,
+    "clusters": 0.555,
+    "fingerprints": 0.5254,
+    "priority": 0.8372,
+    "resilience": 0.6541,
+    "outputs": 15.8463,
+    "evidence_xlsx": 0.8548,
+    "check": 0.146
+  },
+  "skipped_stages": [],
+  "total_sec": 25.3703,
+  "rows": {
+    "nodes_roles": 2248,
+    "clusters": 107,
+    "top_nodes": 30,
+    "graph_nodes": 2248,
+    "graph_edges": 3119,
+    "seeds_review": 11,
+    "data_requests": 210
+  }
+}

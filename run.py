@@ -48,13 +48,16 @@ def _truncation(context: dict) -> None:
 
 def _outputs(context: dict) -> None:
     context["row_counts"] = write_outputs(
-        context["features"], context["edges"], context["graph"], context["out_dir"]
+        context["features"], context["edges"], context["graph"], context["out_dir"], context.get("clusters")
     )
 
 
 def _evidence_xlsx(context: dict) -> None:
+    workbook = context["out_dir"] / "evidence.xlsx"
+    workbook.unlink(missing_ok=True)
     build_evidence(context["data_dir"], context["out_dir"])
-
+    if not workbook.is_file():
+        raise FileNotFoundError(f"evidence_xlsx did not create {workbook}")
 
 def _check(context: dict) -> None:
     check.check_outputs(context["out_dir"])
@@ -93,7 +96,13 @@ def main() -> None:
             stage(context)
         except NotImplementedError as error:
             skipped.append(name)
-            print(f"{name}: пропущено ({error})")
+            label = "предупреждение" if name == "evidence_xlsx" else "пропущено"
+            print(f"{name}: {label} ({error})")
+        except Exception as error:
+            if name != "evidence_xlsx":
+                raise
+            skipped.append(name)
+            print(f"{name}: предупреждение ({error})")
         finally:
             stage_times[name] = round(perf_counter() - stage_started, 4)
         print(f"{name}: {stage_times[name]:.3f} с")

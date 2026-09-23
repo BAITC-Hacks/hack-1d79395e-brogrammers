@@ -1,0 +1,13 @@
+scope,check,count,ok
+top10,is_seed,0,True
+top10,payer,0,True
+top10,excluded,0,True
+top10,aggregator_like,0,True
+top10,visibility != full,0,True
+top10,seed_exp_chrono == 0 (non-seed),0,True
+top30,is_seed,0,True
+top30,payer,0,True
+top30,excluded,0,True
+top30,aggregator_like,0,True
+top30,visibility != full,0,True
+top30,seed_exp_chrono == 0 (non-seed),0,True
