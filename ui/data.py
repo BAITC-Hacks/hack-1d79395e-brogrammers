@@ -93,6 +93,10 @@ def load_bundle(out_dir):
         frame = read_csv(path)
         absent = set(columns) - set(frame.columns)
         if absent:
+            if name in OPTIONAL:
+                missing.append(f"{path.name}: нет колонок {', '.join(sorted(absent))}")
+                tables[name] = pd.DataFrame(columns=columns)
+                continue
             raise ValueError(f"{path.name}: отсутствуют колонки {', '.join(sorted(absent))}")
         if name in {"nodes_roles", "top_nodes", "seeds_review"}:
             frame["role_label"] = frame.get("role_label", frame.role.map(LABELS)).fillna(frame.role.map(LABELS))
@@ -135,7 +139,10 @@ def status_a(path="docs/STATUS_A.md"):
 
 
 def flow_ready(path="docs/STATUS_A.md"):
-    return "graf.flow.chrono_reach готов" in status_a(path)
+    import re
+    return any("graf.flow.chrono_reach" in line and re.search(r"\bготов\b", line)
+               and not re.search(r"\bне\s+готов", line)
+               for line in status_a(path).splitlines())
 
 
 def choose_output(root="."):

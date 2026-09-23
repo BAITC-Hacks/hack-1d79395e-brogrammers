@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from tools.ui_fixtures import ensure_stub
 from streamlit.testing.v1 import AppTest
 
 from ui.data import load_bundle, display_frame, json_records, fingerprint, load_raw

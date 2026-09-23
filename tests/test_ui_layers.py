@@ -1,6 +1,8 @@
 """B2: directed map, exact IDs and staged activation of A's chronology API."""
+from pathlib import Path
 import pandas as pd
 import pytest
+from tools.ui_fixtures import ensure_stub
 from ui.data import load_bundle, chronology_filter, choose_output, flow_ready
 from ui.graphs import layer_figure
 
@@ -39,8 +41,8 @@ def test_ready_gate_and_default_output(tmp_path, monkeypatch):
     (tmp_path/'out/nodes_roles.csv').touch()
     status = tmp_path/'docs/STATUS_A.md'
     assert choose_output(tmp_path).endswith('out_stub')
-    status.write_text('| A1 | готово | abc |\ngraf.flow.chrono_reach готов')
-    assert choose_output(tmp_path).endswith('/out')
+    status.write_text('| A1 | готово | abc |\ngraf.flow.chrono_reach готов', encoding='utf-8')
+    assert Path(choose_output(tmp_path)).name == 'out'
     assert flow_ready(status)
     import graf.flow
     calls = []
@@ -52,3 +54,20 @@ def test_ready_gate_and_default_output(tmp_path, monkeypatch):
     assert calls == [7]
     with pytest.raises(ValueError):
         chronology_filter(nodes, None, 7)
+
+
+def test_status_accepts_documented_function_signature(tmp_path):
+    status=tmp_path/'STATUS_A.md'
+    status.write_text('`graf.flow.chrono_reach(tx, seeds, gap_days, max_hops=4)` готов с A2', encoding='utf-8')
+    assert flow_ready(status)
+    status.write_text('graf.flow.chrono_reach не готов', encoding='utf-8')
+    assert not flow_ready(status)
+
+
+def test_incomplete_optional_file_is_reported(tmp_path):
+    import shutil
+    shutil.copytree('out_stub',tmp_path/'out_stub')
+    pd.DataFrame({'strategy':['priority']}).to_csv(tmp_path/'out_stub/resilience.csv',index=False)
+    bundle=load_bundle(tmp_path/'out_stub')
+    assert bundle.tables['resilience'].empty
+    assert any('resilience.csv: нет колонок' in s for s in bundle.missing)

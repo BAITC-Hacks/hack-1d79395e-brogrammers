@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from tools.ui_fixtures import ensure_stub
 
 from ui.data import load_bundle, load_raw, REQUIRED, OPTIONAL
 from ui.theme import LABELS
@@ -52,7 +53,7 @@ def test_source_metrics_and_precision(bundle):
     for side, column in [("src", "out_kzt"), ("dst", "in_kzt")]:
         expected = edges.groupby(side).sum_kzt.sum().reindex(actual.index, fill_value=0)
         assert (actual[column]-expected).abs().max() < .001
-    graph = json.loads((OUT / "graph.json").read_text())
+    graph = json.loads((OUT / "graph.json").read_text(encoding="utf-8"))
     assert len(graph["nodes"]) == len(nodes)
     assert len(graph["edges"]) == len(edges)
     assert {r["id"] for r in graph["nodes"]} == set(nodes.gid.astype(str))

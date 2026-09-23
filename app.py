@@ -248,7 +248,11 @@ def main():
                 payload, frames = st.session_state.xlsx_all
                 st.download_button("Вся база (XLSX)", payload, "evidence.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                 sheet = st.selectbox("Предпросмотр листа", list(frames))
-                st.dataframe(display_frame(frames[sheet]) if sheet != "Признаки" else frames[sheet], hide_index=True, use_container_width=True)
+                preview = (display_frame(frames[sheet]) if sheet != "Признаки" else frames[sheet]).copy()
+                for column in ("role", "role_alt", "роль"):
+                    if column in preview:
+                        preview[column] = preview[column].map(lambda value: LABELS.get(value, value))
+                st.dataframe(preview, hide_index=True, use_container_width=True)
             gid = st.session_state.gid
             if st.button(f"Подготовить XLSX узла {gid}"):
                 try:
