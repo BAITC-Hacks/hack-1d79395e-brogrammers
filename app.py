@@ -16,10 +16,12 @@ from ui.graphs import directed_graph, ego_html, layer_figure
 from ui.card import render_card, render_summary, render_counterparties
 from ui.formatting import display_table
 from ui.navigation import selected_gid
+from ui.workspace import inject_workspace_style, workspace_header, page_intro
+from ui.panels import render_node_overview
 
 load_dotenv()
 st.set_page_config(page_title="Граф денег · AML", page_icon="◈", layout="wide", initial_sidebar_state="expanded")
-inject_style(st)
+inject_workspace_style(st)
 
 
 @st.cache_data(show_spinner=False)
@@ -89,8 +91,8 @@ def main():
         st.session_state["scroll_to_top"] = True
         st.query_params["gid"] = st.session_state["gid"]
     with st.sidebar:
-        st.markdown("## ◈ Граф денег")
-        st.caption("РАБОЧЕЕ МЕСТО АНАЛИТИКА")
+        st.markdown("### Поиск и фильтры")
+        st.caption("НАСТРОЙКИ ПРОСМОТРА СЕТИ")
         sidebar_controls = st.container()
         with st.expander("Источники данных", expanded=False):
             default_out = os.getenv("GRAF_OUT") or choose_output()
@@ -101,8 +103,6 @@ def main():
                 for key in ["xlsx_all", "xlsx_node", "assistant_messages", "ai_card", "node_history", "skip_node_history"]:
                     st.session_state.pop(key, None)
                 st.rerun()
-    st.title("Граф денег")
-    st.caption("Кого проверить первым, на каких основаниях и каких данных не хватает.")
     try:
         stamp = fingerprint(out_dir)
         bundle = cached_bundle(out_dir, stamp)
@@ -129,6 +129,7 @@ def main():
             edges = raw_edges.to_dict("records")
     except (FileNotFoundError, OSError, KeyError, ValueError) as exc:
         st.caption(f"Исходные транзакции недоступны: {exc}")
+    workspace_header(st, bundle, tx)
     ids = nodes.gid.astype(str).tolist()
     st.session_state["known_gids"] = ids
     query_gid = st.query_params.get("gid")
@@ -141,7 +142,7 @@ def main():
             if matches:
                 chosen = st.selectbox("Совпадения", matches[:100])
                 st.caption(f"Найдено {len(matches)}. Показано до 100.")
-                if st.button("Открыть узел", width="stretch"):
+                if st.button("Открыть узел", width="stretch", type="primary"):
                     open_node(chosen)
             else:
                 st.info("Такой gid не найден. Проверьте номер или смените папку выгрузок.")
@@ -183,7 +184,8 @@ def main():
             filtered = filtered.iloc[0:0]
     st.session_state["visible_gids"] = filtered.gid.astype(str).tolist()
     page = st.radio("Раздел", ["Топ-лист", "Узел", "Карта по коленам", "Кластеры", "Устойчивость", "Доказательства", "Ассистент"],
-                    horizontal=True, key="page", label_visibility="collapsed")
+                    horizontal=True, key="page", label_visibility="collapsed",
+                    format_func=lambda value: {"Топ-лист": "Очередь проверки", "Узел": "Карточка счёта", "Карта по коленам": "Карта сети"}.get(value, value))
     if page != "Узел":
         overview = st.expander("Сводка исходной выгрузки", expanded=False) if page == "Топ-лист" else st.container()
         with overview:
@@ -199,7 +201,8 @@ def main():
         filter_info.caption(f"Активные фильтры · Роли: {role_text} · Слой: {layer_text} · Узлов: {len(filtered)} из {len(nodes)}")
         filter_action.button("Сбросить фильтры", on_click=reset_filters, key="reset_visible", width="stretch")
     if page == "Топ-лист":
-        st.subheader("Кого проверить первым")
+        page_intro(st, "Приоритеты проверки", "Очередь проверки счетов",
+                   "Начните с верхних строк. Откройте счёт, сопоставьте признаки и ограничения, затем скачайте основания для проверки.")
         top = bundle.tables["top_nodes"]
         top = top.loc[top.gid.isin(filtered.gid)].reset_index(drop=True)
         st.caption(f"В выбранных фильтрах: {len(top)} из {len(bundle.tables['top_nodes'])} узлов топ-листа. Нажмите строку, чтобы открыть карточку.")
@@ -216,10 +219,12 @@ def main():
         top_display = display_frame(top[shown])
         from ui.formatting import VISIBILITY_LABELS
         top_display["visibility"] = top_display["visibility"].map(VISIBILITY_LABELS).fillna(top_display["visibility"])
-        st.dataframe(top_display, hide_index=True, width="stretch",
+        styled_top = top_display.style.map(
+            lambda role: f"color: {next((COLORS[key] for key, label in LABELS.items() if role == label), '#0b1c30')}; font-weight: 600", subset=["role_label"])
+        st.dataframe(styled_top, hide_index=True, width="stretch",
                      on_select=select_top_row, selection_mode="single-row", key=table_key,
                      column_config={"rank": "Место", "gid": "gid", "role_label": "Роль (гипотеза)",
-                                    "priority_score": st.column_config.NumberColumn("Приоритет", format="%.3f"),
+                                    "priority_score": st.column_config.ProgressColumn("Приоритет", format="%.3f", min_value=0, max_value=1),
                                     "confidence_level": "Уверенность", "visibility": "Наблюдаемость", "why": st.column_config.TextColumn("Основания", width="large")})
         st.markdown("**Исходные клиенты (seed) для дополнительной проверки · вся выгрузка**")
         st.dataframe(display_frame(bundle.tables["seeds_review"].drop(columns=["role"], errors="ignore")),
@@ -237,7 +242,7 @@ def main():
         if selected.empty:
             st.info("Выбранный gid отсутствует в этой выгрузке. Найдите узел в боковой панели.")
         else:
-            st.caption(f"УЗЕЛ {gid} · КАРТОЧКА ПО ПОЛНОЙ ВЫГРУЗКЕ")
+            st.caption(f"КАРТОЧКА СЧЁТА · {gid} · ПОЛНАЯ ВЫГРУЗКА")
             if st.session_state.get("node_history"):
                 st.button("← К предыдущему узлу", on_click=back_node,
                           help="Возврат к счёту, из карточки которого открыт этот контрагент; фильтры сохраняются.")
@@ -247,8 +252,8 @@ def main():
             prepared = st.session_state.get("xlsx_node")
             if prepared and prepared[0] == str(gid):
                 actions[2].download_button("Скачать XLSX узла", prepared[1], f"evidence_{gid}.xlsx",
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key=f"card_download_{gid}", width="stretch")
-            elif actions[2].button("Подготовить XLSX узла", key=f"card_xlsx_{gid}", width="stretch", disabled=tx is None,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key=f"card_download_{gid}", width="stretch", type="primary")
+            elif actions[2].button("Подготовить XLSX узла", key=f"card_xlsx_{gid}", width="stretch", type="primary", disabled=tx is None,
                                   help="Шесть листов с данными только этого счёта. После подготовки здесь появится кнопка скачивания."):
                 from graf.evidence_xlsx import build_node_evidence
                 try:
@@ -261,7 +266,9 @@ def main():
                 st.caption("Чтобы подготовить XLSX, укажите исходные транзакции в разделе «Источники данных» слева.")
             st.button("Доказательства узла", on_click=navigate, args=("Доказательства",),
                       help="Открывает общий раздел доказательств с предпросмотром всех листов.")
-            render_summary(st, selected.iloc[0].to_dict(), bundle)
+            render_node_overview(st, selected.iloc[0].to_dict(), bundle)
+            with st.expander("Все показатели и полное основание"):
+                render_summary(st, selected.iloc[0].to_dict(), bundle)
             render_counterparties(st, selected.iloc[0].to_dict(), bundle, tx, on_open_node=open_node)
             st.subheader("Связи выбранного узла")
             hops = st.radio("Связи на расстоянии 1–2 переводов", [1, 2], horizontal=True,
@@ -280,7 +287,7 @@ def main():
                 if card and card[0] == str(gid):
                     st.write(card[1]["text"])
     elif page == "Карта по коленам":
-        st.subheader("Структура сети и наблюдаемые границы")
+        page_intro(st, "Направления и роли", "Карта сети", "Выберите узел, чтобы выделить его соседей. Четвёртое колено — граница собранных данных.")
         highlighted = st.session_state.get("map_selected") or (st.session_state.gid if st.query_params.get("gid") else None)
         if highlighted and highlighted not in ids:
             st.info("Ранее выбранный узел отсутствует в этой выгрузке. Найдите другой счёт через поиск слева.")
@@ -307,7 +314,7 @@ def main():
         st.dataframe(display_table(bundle.tables["tracked_by_depth"]), hide_index=True, width="stretch")
     elif page == "Кластеры":
         clusters = bundle.tables["clusters"]
-        st.subheader("Группы связанных счетов")
+        page_intro(st, "Структура переводов", "Группы связанных счетов", "Кластеры объединяют узлы по наблюдаемым связям. Откройте группу и проверьте её состав и гипотезу.")
         st.caption("Кластер объединяет близкие по связям узлы. Его гипотеза требует проверки; это не установленная группа лиц.")
         st.dataframe(display_table(clusters), hide_index=True, width="stretch")
         if not clusters.empty:
@@ -326,7 +333,7 @@ def main():
                 show_graph(visible_cluster, edges)
     elif page == "Устойчивость":
         resilience = bundle.tables["resilience"]
-        st.subheader("Что меняется при удалении узлов")
+        page_intro(st, "Структурный эксперимент", "Устойчивость сети", "Сравните, как меняется достижимость при условном удалении узлов. Сценарий не является рекомендацией блокировки.")
         st.info("Очередь проверки учитывает прослеживаемые деньги и роли. Этот график решает другую задачу — сравнивает потерю связности при условном удалении узлов.")
         st.caption("Структурный сценарий. Не прогноз реального поведения участников сети и не рекомендация блокировки счетов.")
         if resilience.empty:
@@ -359,7 +366,7 @@ def main():
             if not all_seeds.empty:
                 st.caption(f"Крупнейшая слабосвязная компонента после удаления seed: {int(all_seeds.iloc[0].largest_wcc)} узлов.")
     elif page == "Доказательства":
-        st.subheader("Проверяемые основания в одном файле")
+        page_intro(st, "Экспорт и воспроизводимость", "Доказательная база", "Подготовьте общий XLSX или отчёт выбранного счёта: факты, транзакции, пути, критерии и запросы дополнительных данных.")
         if tx is None:
             st.warning("Для XLSX укажите исходные parquet или ZIP в боковой панели.")
         else:
@@ -395,7 +402,7 @@ def main():
             if item and item[0] == str(gid):
                 st.download_button("Только выбранный узел (XLSX)", item[1], f"evidence_{gid}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     elif page == "Ассистент":
-        st.subheader("Вопрос по данным графа")
+        page_intro(st, "Дополнительный инструмент", "Ассистент по данным", "Задавайте вопросы по локальным расчётам. Ответы требуют проверки по фактам и ссылкам на узлы.")
         if not os.getenv("OPENAI_API_KEY") or not os.getenv("OPENAI_MODEL"):
             st.info("Чтобы включить ассистента, задайте OPENAI_API_KEY и OPENAI_MODEL в .env и перезапустите приложение.")
             st.caption("Поиск, карточки, графы и XLSX полностью работают без ассистента.")

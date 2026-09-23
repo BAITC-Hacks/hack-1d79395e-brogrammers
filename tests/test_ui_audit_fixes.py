@@ -149,4 +149,3 @@ def test_map_card_action_survives_plotly_rerender(monkeypatch):
     assert not app.exception
     assert app.radio(key="page").value == "Узел"
     assert app.session_state["gid"] == gid
-

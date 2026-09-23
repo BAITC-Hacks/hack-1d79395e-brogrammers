@@ -187,4 +187,3 @@ def test_changing_sources_invalidates_old_xlsx_and_navigation_history(app, tmp_p
     assert not app.session_state.get("node_history", [])
     assert not any(item.label == "← К предыдущему узлу" for item in app.button)
     assert not _downloads(app)
-
