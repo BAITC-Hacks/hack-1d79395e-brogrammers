@@ -2,22 +2,21 @@
   "data_dir": "data",
   "out_dir": "out",
   "stages_sec": {
-    "load": 0.0746,
-    "features": 2.3694,
-    "temporal": 0.1786,
-    "truncation": 0.0108,
-    "flow": 0.0,
+    "load": 0.1008,
+    "features": 3.4639,
+    "temporal": 0.4757,
+    "truncation": 0.0167,
+    "flow": 0.2645,
     "roles": 0.0,
     "clusters": 0.0,
     "fingerprints": 0.0,
     "priority": 0.0,
     "resilience": 0.0,
-    "outputs": 14.6828,
+    "outputs": 24.6308,
     "evidence_xlsx": 0.0,
-    "check": 0.0507
+    "check": 0.0877
   },
   "skipped_stages": [
-    "flow",
     "roles",
     "clusters",
     "fingerprints",
@@ -25,7 +24,7 @@
     "resilience",
     "evidence_xlsx"
   ],
-  "total_sec": 17.3672,
+  "total_sec": 29.0405,
   "rows": {
     "nodes_roles": 2248,
     "clusters": 35,
