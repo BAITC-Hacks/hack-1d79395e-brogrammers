@@ -2,6 +2,7 @@ import pandas as pd
 import plotly.express as px
 
 from ui.data import display_frame
+from ui.theme import LABELS
 
 
 def counterparties(tx, gid, direction):
@@ -20,7 +21,8 @@ def render_card(st, row, bundle, tx):
     cols[2].metric("Уверенность", row.get("confidence_level", "не передана"))
     st.caption("Скор роли — эвристическая оценка, не вероятность виновности.")
     if row.get("ambiguous", False):
-        st.warning(f"Неоднозначная роль. Альтернатива: {row.get('role_alt', 'не передана')}")
+        alternative = row.get("role_alt", "не передана")
+        st.warning(f"Неоднозначная роль. Альтернатива: {LABELS.get(alternative, alternative)}")
     st.info(row["evidence"])
     left, right = st.columns(2)
     with left:

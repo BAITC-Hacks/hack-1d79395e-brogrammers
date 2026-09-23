@@ -9,7 +9,7 @@ import plotly.express as px
 import streamlit as st
 import streamlit.components.v1 as components
 
-from ui.data import load_bundle, load_raw, fingerprint, display_frame, chronology_filter
+from ui.data import cached_bundle, cached_raw, fingerprint, display_frame, chronology_filter
 from ui.theme import COLORS, LABELS, LIMITS, DISCLAIMER, inject_style
 from ui.graphs import directed_graph, ego_html, layer_figure
 from ui.card import render_card
@@ -17,16 +17,6 @@ from ui.card import render_card
 load_dotenv()
 st.set_page_config(page_title="Граф денег · AML", page_icon="◈", layout="wide")
 inject_style(st)
-
-
-@st.cache_data(show_spinner=False)
-def cached_bundle(path, stamp):
-    return load_bundle(path)
-
-
-@st.cache_data(show_spinner=False)
-def cached_raw(path, stamp):
-    return load_raw(path)
 
 
 @st.cache_data(show_spinner=False)
@@ -40,9 +30,7 @@ def cached_ego(nodes, edges, selected, hops):
 
 
 def open_node(gid):
-    st.session_state["gid"] = str(gid)
-    st.session_state["page"] = "Узел"
-    st.query_params["gid"] = str(gid)
+    st.session_state["pending_gid"] = str(gid)
     st.rerun()
 
 
@@ -58,6 +46,10 @@ def show_graph(nodes, edges, selected=None, hops=1):
 
 
 def main():
+    if "pending_gid" in st.session_state:
+        st.session_state["gid"] = st.session_state.pop("pending_gid")
+        st.session_state["page"] = "Узел"
+        st.query_params["gid"] = st.session_state["gid"]
     with st.sidebar:
         st.markdown("## ◈ Граф денег")
         st.caption("РАБОЧЕЕ МЕСТО AML-АНАЛИТИКА")
@@ -154,14 +146,20 @@ def main():
         top = bundle.tables["top_nodes"]
         top = top.loc[top.gid.isin(filtered.gid)].reset_index(drop=True)
         shown = [c for c in ["rank", "gid", "role_label", "priority_score", "confidence_level", "visibility", "why"] if c in top]
-        event = st.dataframe(display_frame(top[shown]), hide_index=True, use_container_width=True,
-                             on_select="rerun", selection_mode="single-row", key=f"top_{out_dir}_{mode}_{','.join(roles)}")
-        if event.selection.rows:
-            selected = str(top.iloc[event.selection.rows[0]].gid)
-            if st.button(f"Открыть карточку {selected}"):
-                open_node(selected)
+        table_key = f"top_{out_dir}_{mode}_{','.join(roles)}"
+        def select_top_row():
+            rows = st.session_state[table_key].get("selection", {}).get("rows", [])
+            if rows and rows[0] < len(top):
+                st.session_state["pending_gid"] = str(top.iloc[rows[0]].gid)
+        st.dataframe(display_frame(top[shown]), hide_index=True, use_container_width=True,
+                     on_select=select_top_row, selection_mode="single-row", key=table_key,
+                     column_config={"rank": "Место", "gid": "gid", "role_label": "Роль (гипотеза)",
+                                    "priority_score": st.column_config.NumberColumn("Приоритет", format="%.3f"),
+                                    "confidence_level": "Уверенность", "visibility": "Наблюдаемость", "why": "Основания"})
         st.markdown("**Seed выше нижнего уровня — пересмотреть уровень**")
-        st.dataframe(display_frame(bundle.tables["seeds_review"]), hide_index=True, use_container_width=True)
+        st.dataframe(display_frame(bundle.tables["seeds_review"].drop(columns=["role"], errors="ignore")),
+                     hide_index=True, use_container_width=True,
+                     column_config={"role_label": "Роль (гипотеза)", "evidence": "Основания"})
         st.markdown("**Распределение ролей**")
         counts = nodes.role_label.value_counts().rename_axis("Роль").reset_index(name="Узлов")
         st.dataframe(counts, hide_index=True, use_container_width=True)

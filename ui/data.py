@@ -6,6 +6,7 @@ from pathlib import Path
 import zipfile
 
 import pandas as pd
+from streamlit import cache_data
 
 from ui.theme import LABELS
 
@@ -128,6 +129,17 @@ def fingerprint(path):
     return tuple((str(p), p.stat().st_mtime_ns, p.stat().st_size) for p in files if p.is_file())
 
 
+@cache_data(show_spinner=False)
+def cached_bundle(path, stamp):
+    """stamp participates in the cache key so a new A export is read immediately."""
+    return load_bundle(path)
+
+
+@cache_data(show_spinner=False)
+def cached_raw(path, stamp):
+    return load_raw(path)
+
+
 def display_frame(frame):
     frame = frame.copy()
     for c in ID_COLUMNS & set(frame.columns):
@@ -140,16 +152,21 @@ def json_records(frame):
 
 
 def chronology_filter(nodes, tx, gap_days):
+    def fallback():
+        column = {2: "seed_exp_fast", 31: "seed_exp_chrono"}.get(gap_days)
+        if column is None or column not in nodes:
+            raise ValueError("До готовности A2 доступны только готовые колонки seed_exp_fast / seed_exp_chrono для Δ=2 и Δ=31")
+        return nodes.set_index("gid")[column].to_dict(), f"Готовая колонка выгрузки: Δ={gap_days} дней (без пересчёта A2)"
     try:
         from graf.flow import chrono_reach
     except ModuleNotFoundError as exc:
         if exc.name not in {"graf", "graf.flow"}:
             raise
-        column = {2: "seed_exp_fast", 31: "seed_exp_chrono"}.get(gap_days)
-        if column is None or column not in nodes:
-            raise ValueError("Без graf.flow нужны seed_exp_fast / seed_exp_chrono, доступны Δ=2 и Δ=31")
-        return nodes.set_index("gid")[column].to_dict(), f"Готовый расчёт: Δ={gap_days} дней"
+        return fallback()
     if tx is None:
         raise ValueError("Для пересчёта Δ нужны transactions.parquet")
     seeds = set(nodes.loc[nodes.is_seed, "gid"].astype(int))
-    return chrono_reach(tx, seeds, gap_days, max_hops=4), f"Хронологический маршрут: Δ≤{gap_days} дней"
+    try:
+        return chrono_reach(tx, seeds, gap_days, max_hops=4), f"Хронологический маршрут: Δ≤{gap_days} дней"
+    except NotImplementedError:
+        return fallback()
