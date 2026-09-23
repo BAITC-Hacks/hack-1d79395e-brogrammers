@@ -9,7 +9,7 @@ import plotly.express as px
 import streamlit as st
 import streamlit.components.v1 as components
 
-from ui.data import cached_bundle, cached_raw, fingerprint, display_frame, chronology_filter
+from ui.data import cached_bundle, cached_raw, fingerprint, display_frame, chronology_filter, choose_output, flow_ready
 from ui.theme import COLORS, LABELS, LIMITS, DISCLAIMER, inject_style
 from ui.graphs import directed_graph, ego_html, layer_figure
 from ui.card import render_card
@@ -20,8 +20,8 @@ inject_style(st)
 
 
 @st.cache_data(show_spinner=False)
-def cached_chrono(nodes, tx, gap):
-    return chronology_filter(nodes, tx, gap)
+def cached_chrono(nodes, tx, gap, ready):
+    return chronology_filter(nodes, tx, gap, ready=ready)
 
 
 @st.cache_data(show_spinner=False)
@@ -53,7 +53,7 @@ def main():
     with st.sidebar:
         st.markdown("## ◈ Граф денег")
         st.caption("РАБОЧЕЕ МЕСТО AML-АНАЛИТИКА")
-        default_out = os.getenv("GRAF_OUT") or ("out" if Path("out/nodes_roles.csv").exists() else "out_stub")
+        default_out = os.getenv("GRAF_OUT") or choose_output()
         out_dir = st.text_input("Папка выгрузок", value=default_out)
         data_dir = st.text_input("Исходные данные: папка или ZIP", value=os.getenv("GRAF_DATA", "data"))
         if st.button("Обновить выгрузки", use_container_width=True):
@@ -110,7 +110,7 @@ def main():
         gap = 31
         if mode == "Деньги курьеров":
             try:
-                has_flow = importlib.util.find_spec("graf.flow") is not None
+                has_flow = flow_ready() and importlib.util.find_spec("graf.flow") is not None
             except ModuleNotFoundError:
                 has_flow = False
             if has_flow and tx is not None:
@@ -125,7 +125,7 @@ def main():
     filtered = nodes.loc[nodes.role.isin(roles)].copy()
     if mode == "Деньги курьеров":
         try:
-            counts, explanation = cached_chrono(nodes, tx, gap)
+            counts, explanation = cached_chrono(nodes, tx, gap, flow_ready())
             active = nodes.gid.map(counts).fillna(0).gt(0)
             seeds = nodes.get("is_seed", pd.Series(False, index=nodes.index))
             st.info(f"Узлов в следе {int((active & ~seeds).sum())} из {int((~seeds).sum())} не-seed · {explanation}")

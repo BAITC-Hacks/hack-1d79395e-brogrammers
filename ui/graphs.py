@@ -64,8 +64,9 @@ def ego_html(graph, selected=None, hops=1, cap=250):
 
 def layer_figure(nodes, edges, graph_json, selected=None, network_layout=False):
     figure = go.Figure()
-    nodes = nodes.sort_values([c for c in ["depth", "cluster_id", "priority_score", "gid"] if c in nodes],
-                              ascending=[True, True, False, True][:len([c for c in ["depth", "cluster_id", "priority_score", "gid"] if c in nodes])]).copy()
+    order = {"depth": True, "cluster_id": True, "priority_score": False, "gid": True}
+    columns = [c for c in order if c in nodes]
+    nodes = nodes.sort_values(columns, ascending=[order[c] for c in columns]).copy()
     saved = {str(r["id"]): r for r in graph_json.get("nodes", [])}
     coordinates = {}
     for depth, group in nodes.groupby("depth"):
@@ -87,7 +88,7 @@ def layer_figure(nodes, edges, graph_json, selected=None, network_layout=False):
     for bucket in range(4):
         xs, ys = [], []
         for r in chosen:
-            b = min(3, int(4*math.log1p(r["sum_kzt"])/math.log1p(max_amount)))
+            b = min(3, int(4*math.log1p(r["sum_kzt"])/math.log1p(max_amount))) if max_amount > 0 else 0
             if b == bucket:
                 x1,y1 = coordinates[str(r["src"])]; x2,y2 = coordinates[str(r["dst"])]
                 xs += [x1,x2,None]; ys += [y1,y2,None]
