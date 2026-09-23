@@ -129,6 +129,24 @@ def fingerprint(path):
     return tuple((str(p), p.stat().st_mtime_ns, p.stat().st_size) for p in files if p.is_file())
 
 
+def status_a(path="docs/STATUS_A.md"):
+    path = Path(path)
+    return path.read_text(encoding="utf-8").replace("`", "") if path.exists() else ""
+
+
+def flow_ready(path="docs/STATUS_A.md"):
+    return "graf.flow.chrono_reach готов" in status_a(path)
+
+
+def choose_output(root="."):
+    root = Path(root)
+    status = status_a(root / "docs/STATUS_A.md")
+    import re
+    a1_ready = any(re.search(r"\bA1\b", line) and re.search(r"готово|завершен|завершён|done", line, re.I)
+                   and "не готов" not in line.lower() for line in status.splitlines())
+    return str(root / ("out" if a1_ready and (root / "out/nodes_roles.csv").exists() else "out_stub"))
+
+
 @cache_data(show_spinner=False)
 def cached_bundle(path, stamp):
     """stamp participates in the cache key so a new A export is read immediately."""
@@ -151,12 +169,14 @@ def json_records(frame):
     return json.loads(display_frame(frame).to_json(orient="records", date_format="iso", force_ascii=False))
 
 
-def chronology_filter(nodes, tx, gap_days):
+def chronology_filter(nodes, tx, gap_days, ready=False):
     def fallback():
         column = {2: "seed_exp_fast", 31: "seed_exp_chrono"}.get(gap_days)
         if column is None or column not in nodes:
             raise ValueError("До готовности A2 доступны только готовые колонки seed_exp_fast / seed_exp_chrono для Δ=2 и Δ=31")
         return nodes.set_index("gid")[column].to_dict(), f"Готовая колонка выгрузки: Δ={gap_days} дней (без пересчёта A2)"
+    if not ready:
+        return fallback()
     try:
         from graf.flow import chrono_reach
     except ModuleNotFoundError as exc:
