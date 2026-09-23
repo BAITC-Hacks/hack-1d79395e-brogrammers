@@ -123,3 +123,10 @@ def test_cache_fingerprint_changes(tmp_path):
     old = fingerprint(tmp_path)
     path.write_text("new longer output")
     assert old != fingerprint(tmp_path)
+
+
+@pytest.mark.parametrize('page', ['Карта по коленам', 'Кластеры', 'Устойчивость', 'Доказательства', 'Ассистент'])
+def test_remaining_pages_without_api_key(app, page):
+    app.radio(key='page').set_value(page).run()
+    assert not app.exception
+    assert any('не установление вины' in c.value for c in app.caption)
