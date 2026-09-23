@@ -195,7 +195,8 @@ def main():
             st.info("Нет узлов в текущем фильтре.")
         else:
             network = st.checkbox("Сетевая раскладка", disabled=not bool(bundle.graph.get("nodes")))
-            fig, total_edges = layer_figure(filtered, edges, bundle.graph, st.session_state.gid, network)
+            highlighted = st.session_state.gid if st.query_params.get("gid") else None
+            fig, total_edges = layer_figure(filtered, edges, bundle.graph, highlighted, network)
             event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key="layers")
             st.caption(f"Показано до 400 из {total_edges} рёбер по сумме; стрелки — у топ-100. Выбор точки открывает доступ к карточке.")
             if event.selection.points:
@@ -252,7 +253,10 @@ def main():
                 for column in ("role", "role_alt", "роль"):
                     if column in preview:
                         preview[column] = preview[column].map(lambda value: LABELS.get(value, value))
-                st.dataframe(preview, hide_index=True, use_container_width=True)
+                st.dataframe(preview, hide_index=True, use_container_width=True,
+                             column_config={"date": st.column_config.DateColumn("Дата", format="DD.MM.YYYY"),
+                                            "src": "Отправитель (gid)", "dst": "Получатель (gid)",
+                                            "sum_kzt": st.column_config.NumberColumn("Сумма, ₸", format="%.2f")})
             gid = st.session_state.gid
             if st.button(f"Подготовить XLSX узла {gid}"):
                 try:
