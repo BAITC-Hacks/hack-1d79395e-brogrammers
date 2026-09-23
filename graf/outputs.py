@@ -145,7 +145,11 @@ def _prepare_roles(features: pd.DataFrame, graph: nx.DiGraph) -> pd.DataFrame:
     return roles.sort_values("gid", kind="stable")
 
 
-def _clusters_table(roles: pd.DataFrame, edges: pd.DataFrame) -> pd.DataFrame:
+def _clusters_table(
+    roles: pd.DataFrame,
+    edges: pd.DataFrame,
+    cluster_summary: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     gid_to_cluster = roles.set_index("gid")["cluster_id"]
     edge_clusters = edges[["src", "dst", "sum_kzt"]].copy()
     edge_clusters["src_cluster"] = edge_clusters["src"].map(gid_to_cluster)
@@ -191,7 +195,26 @@ def _clusters_table(roles: pd.DataFrame, edges: pd.DataFrame) -> pd.DataFrame:
         "n_consolidator", "n_distributor", "n_transit", "n_terminal",
         "n_payer", "tracked_kzt_internal",
     ]
-    return pd.DataFrame(rows, columns=columns)
+    table = pd.DataFrame(rows, columns=columns)
+    if cluster_summary is not None:
+        summary = cluster_summary.set_index("cluster_id")
+        if not summary.index.is_unique:
+            raise ValueError("cluster_summary must contain unique cluster_id values")
+        if set(summary.index) != set(table["cluster_id"]):
+            raise ValueError("cluster_summary cluster IDs differ from nodes_roles")
+        table = table.set_index("cluster_id")
+        for column in summary.columns:
+            # The cluster stage runs before priority. Recompute these gids from
+            # the final rank rather than importing their provisional order.
+            if column == "top_gids":
+                continue
+            replacement = summary[column].reindex(table.index)
+            if column in table:
+                table[column] = replacement.combine_first(table[column])
+            else:
+                table[column] = replacement
+        table = table.reset_index()
+    return table
 
 
 def _number(value, default: float = 0.0) -> float:
@@ -240,10 +263,55 @@ def _write_graph_json(
     )
 
 
+def _data_requests(roles: pd.DataFrame, top: pd.DataFrame) -> pd.DataFrame:
+    requests = []
+
+    def add(row, request: str, reason: str) -> None:
+        requests.append({
+            "gid": int(row.gid), "request": request, "reason": reason,
+            "priority_score": float(row.priority_score),
+        })
+
+    for row in roles.loc[roles["is_seed"].astype(bool)].itertuples(index=False):
+        add(
+            row, "запросить входящие переводы",
+            "seed: входящие за пределами исходящей выгрузки не видны",
+        )
+    boundary = roles.loc[
+        roles["depth"].eq(4) & roles["p_forward"].ge(0.5)
+        & roles["rank"].le(200)
+    ]
+    for row in boundary.itertuples(index=False):
+        add(
+            row, "запросить выписку исходящих",
+            f"4-е колено обрывает исходящие; p_forward={row.p_forward:.0%}",
+        )
+    near = roles.loc[roles["near_threshold_share"].ge(0.5)]
+    for row in near.itertuples(index=False):
+        add(
+            row, "запросить переводы < 5 000 ₸",
+            f"{row.near_threshold_share:.0%} исходящих в интервале 5–7 тыс. ₸",
+        )
+    for row in top.itertuples(index=False):
+        add(
+            row, "запросить время транзакций для точного FlowTrace",
+            f"ранг {row.rank}: в выгрузке есть даты, но нет времени",
+        )
+    columns = ["gid", "request", "reason", "priority_score"]
+    return pd.DataFrame(requests, columns=columns).sort_values(
+        ["priority_score", "gid", "request"],
+        ascending=[False, True, True], kind="stable",
+    )
+
+
 def write_outputs(
-    features: pd.DataFrame, edges: pd.DataFrame, graph: nx.DiGraph, out_dir: Path
+    features: pd.DataFrame,
+    edges: pd.DataFrame,
+    graph: nx.DiGraph,
+    out_dir: Path,
+    cluster_summary: pd.DataFrame | None = None,
 ) -> dict[str, int]:
-    """Write A1 exports, preserving later-stage fields already present in features."""
+    """Write contract exports, preserving computed A2–A4 values."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     roles = _prepare_roles(features, graph)
@@ -251,7 +319,7 @@ def write_outputs(
     columns += [column for column in roles if column not in columns]
     roles[columns].to_csv(out_dir / "nodes_roles.csv", index=False)
 
-    clusters = _clusters_table(roles, edges)
+    clusters = _clusters_table(roles, edges, cluster_summary)
     clusters.to_csv(out_dir / "clusters.csv", index=False)
 
     eligible = roles.loc[~roles["role"].eq("payer") & ~roles["excluded"].astype(bool)]
@@ -263,9 +331,18 @@ def write_outputs(
          "confidence_level", "visibility", "is_seed"]
     ].to_csv(out_dir / "top_nodes.csv", index=False)
 
+    seeds_review = roles.loc[
+        roles["is_seed"].astype(bool) & roles["seed_above_bottom"].astype(bool),
+        ["gid", "role", "role_label", "evidence"],
+    ]
+    seeds_review.to_csv(out_dir / "seeds_review.csv", index=False)
+    data_requests = _data_requests(roles, top)
+    data_requests.to_csv(out_dir / "data_requests.csv", index=False)
+
     _write_graph_json(roles, edges, graph, out_dir)
     return {
         "nodes_roles": len(roles), "clusters": len(clusters),
         "top_nodes": len(top), "graph_nodes": len(roles),
-        "graph_edges": len(edges),
+        "graph_edges": len(edges), "seeds_review": len(seeds_review),
+        "data_requests": len(data_requests),
     }

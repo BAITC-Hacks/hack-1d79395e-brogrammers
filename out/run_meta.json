@@ -2,32 +2,29 @@
   "data_dir": "data",
   "out_dir": "out",
   "stages_sec": {
-    "load": 0.0825,
-    "features": 4.9749,
-    "temporal": 0.3053,
-    "truncation": 0.0184,
-    "flow": 0.1923,
-    "roles": 0.138,
-    "clusters": 0.0,
-    "fingerprints": 0.0,
-    "priority": 0.0,
-    "resilience": 0.0,
-    "outputs": 15.6083,
-    "evidence_xlsx": 1.2286,
-    "check": 0.0984
+    "load": 0.1083,
+    "features": 5.079,
+    "temporal": 0.2509,
+    "truncation": 0.009,
+    "flow": 0.1773,
+    "roles": 0.1449,
+    "clusters": 0.4658,
+    "fingerprints": 0.5898,
+    "priority": 0.9404,
+    "resilience": 0.5841,
+    "outputs": 15.268,
+    "evidence_xlsx": 0.8982,
+    "check": 0.1112
   },
-  "skipped_stages": [
-    "clusters",
-    "fingerprints",
-    "priority",
-    "resilience"
-  ],
-  "total_sec": 22.6471,
+  "skipped_stages": [],
+  "total_sec": 24.6275,
   "rows": {
     "nodes_roles": 2248,
-    "clusters": 35,
+    "clusters": 107,
     "top_nodes": 30,
     "graph_nodes": 2248,
-    "graph_edges": 3119
+    "graph_edges": 3119,
+    "seeds_review": 11,
+    "data_requests": 210
   }
 }

@@ -48,7 +48,7 @@ def _truncation(context: dict) -> None:
 
 def _outputs(context: dict) -> None:
     context["row_counts"] = write_outputs(
-        context["features"], context["edges"], context["graph"], context["out_dir"]
+        context["features"], context["edges"], context["graph"], context["out_dir"], context.get("clusters")
     )
 
 
