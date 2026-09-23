@@ -2,6 +2,7 @@
 import json
 from types import SimpleNamespace as NS
 import pytest
+from tools.ui_fixtures import ensure_stub
 from graf.assistant import GraphTools, TOOLS, SYSTEM, ask_graph, validate
 
 

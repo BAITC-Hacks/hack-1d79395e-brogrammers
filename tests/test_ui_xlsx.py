@@ -4,6 +4,7 @@ from pathlib import Path
 import shutil
 import pandas as pd
 import pytest
+from tools.ui_fixtures import ensure_stub
 from openpyxl import load_workbook
 from graf.evidence_xlsx import SHEETS, evidence_frames, workbook_bytes, build_evidence, build_node_evidence, transaction_evidence, expand_paths
 from ui.data import load_bundle
