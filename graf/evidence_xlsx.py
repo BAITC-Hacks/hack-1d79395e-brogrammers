@@ -47,6 +47,55 @@ def config_rows():
     return rows or [{"параметр": "graf.config", "значение": "Нет экспортированных констант"}]
 
 
+def role_criteria():
+    """Describe the actual role gates with values from the runtime configuration."""
+    from graf import config as cfg
+
+    gates = {
+        "coordinator": (
+            f"(in_deg ≥ {cfg.CONS_MIN_IN_DEG} и out_deg ≥ {cfg.DIST_MIN_OUT_DEG}) "
+            f"или (from_key ≥ {cfg.COORD_MIN_KEY_LINKS} и to_key ≥ {cfg.COORD_MIN_KEY_LINKS}); "
+            "key — узлы, прошедшие ворота consolidator, distributor или transit"
+        ),
+        "consolidator": f"in_deg ≥ {cfg.CONS_MIN_IN_DEG}",
+        "distributor": f"out_deg ≥ {cfg.DIST_MIN_OUT_DEG}",
+        "transit": (
+            "не seed; in_deg ≥ 1; out_deg ≥ 1; "
+            f"{cfg.TRANSIT_PT[0]:g} ≤ pass_through ≤ {cfg.TRANSIT_PT[1]:g}"
+        ),
+        "terminal": (
+            "depth ≤ 3; in_deg ≥ 1; "
+            f"(out_deg = 0 или (не seed и pass_through < {cfg.TERMINAL_PT_MAX:g})); "
+            f"иначе оценка на depth = 4 при 1−p_forward ≥ {cfg.TRUNC_TERMINAL_MIN_P:g}, "
+            "если не выбрана другая роль"
+        ),
+        "payer": (
+            f"не seed; out_deg ≤ {cfg.PAYER_MAX_OUT_DEG}; out_tx ≤ {cfg.PAYER_MAX_OUT_TX}; "
+            f"out_kzt ≤ {cfg.PAYER_MAX_KZT:g}; хотя бы один получатель с "
+            f"in_deg ≥ {cfg.PAYER_TARGET_MIN_IN_DEG}; ворота transit не пройдены"
+        ),
+        "peripheral": "Другие ворота не пройдены",
+    }
+    scores = {
+        "coordinator": "0.5 + 0.5·min(1,(from_key+to_key)/20)",
+        "consolidator": "0.4·min(1,in_deg/15)+0.2·(1-in_hhi)+0.2·min(1,max_sync_payers/5)+0.2·min(1,2·tracked_share_in)",
+        "distributor": "0.5·min(1,out_deg/40)+0.3·(1-out_hhi)+0.2·fast_out_share",
+        "transit": "0.5·max(0,1−|1−pass_through|/0.2)+0.3·fast_out_share+0.2·[seed_exp_chrono>0]",
+        "terminal": "0.7+0.3·tracked_share_in; оценка на depth=4: 1−p_forward",
+        "payer": "0.8", "peripheral": "0.5; при truncated: 0.3",
+    }
+    rows = [dict(роль=role, role_label=label, ворота=gates[role], скор=scores[role],
+                 источник="graf.roles: правила; graf.config: текущие пороги")
+            for role, label in LABELS.items()]
+    rows.append({
+        "роль": "Порядок выбора",
+        "ворота": "coordinator → payer → максимальный скор среди consolidator/distributor/transit/terminal с пройденными воротами → terminal (оценка на depth=4) → peripheral",
+        "скор": "Скор выбранной роли; у seed pass_through не определяет роль. Скоры эвристические, не вероятности вины.",
+        "источник": "graf.roles.assign_roles",
+    })
+    return pd.DataFrame(rows)
+
+
 def transaction_evidence(tx, nodes, selected_ids, paths):
     subset = tx.loc[tx.src.isin(selected_ids) | tx.dst.isin(selected_ids)].copy()
     roles = nodes.set_index("gid").role.to_dict()
@@ -97,25 +146,7 @@ def evidence_frames(data_dir, out_dir, gid=None):
     paths = paths.loc[paths.target_gid.isin(ids)]
     steps = expand_paths(paths)
     transactions = transaction_evidence(tx, nodes, ids, paths)
-    # The actual numerical gates/scores are owned by A; copy configuration, not a second implementation.
-    gates = {
-        "coordinator": "Комбинация входящих/исходящих либо связей с ключевыми узлами; COORD_MIN_KEY_LINKS",
-        "consolidator": "Число плательщиков ≥ CONS_MIN_IN_DEG",
-        "distributor": "Число получателей ≥ DIST_MIN_OUT_DEG",
-        "transit": "Не seed, есть вход/выход, pass_through в TRANSIT_PT",
-        "terminal": "Наблюдаемый выход: out=0 или pt<TERMINAL_PT_MAX; на границе — оценка по p_forward",
-        "payer": "Не seed; мало исходящих и небольшая сумма; получатель с большим входом; не транзит",
-        "peripheral": "Другие ворота не пройдены",
-    }
-    scores = {
-        "coordinator": "0.5 + 0.5·min(1,(from_key+to_key)/20)",
-        "consolidator": "0.4·min(1,in_deg/15)+0.2·(1-in_hhi)+0.2·min(1,max_sync_payers/5)+0.2·min(1,2·tracked_share_in)",
-        "distributor": "0.5·min(1,out_deg/40)+0.3·(1-out_hhi)+0.2·fast_out_share",
-        "transit": "0.5·(1-|1-pt|/0.2)+0.3·fast_out_share+0.2·[seed_exp_chrono>0]",
-        "terminal": "0.7+0.3·tracked_share_in; на границе: 1-p_forward",
-        "payer": "0.8", "peripheral": "0.5; при truncated: 0.3",
-    }
-    criteria = pd.DataFrame([dict(роль=role, role_label=label, ворота=gates[role], скор=scores[role], источник="docs/TEAM_PLAN.md §7.2 (спецификация)") for role,label in LABELS.items()])
+    criteria = role_criteria()
     criteria = pd.concat([criteria, pd.DataFrame(config).rename(columns={"параметр": "роль", "значение": "ворота"}).assign(источник="graf.config: текущие параметры")], ignore_index=True)
     limits = [{"тип": "ограничение", "описание": text} for text in [DISCLAIMER]+LIMITS]
     limits.append({"тип": "источник", "описание": f"Выгрузки: {Path(out_dir).name}; транзакции: {Path(data_dir).name}"})
@@ -124,7 +155,8 @@ def evidence_frames(data_dir, out_dir, gid=None):
     if bundle.missing:
         limits.append({"тип": "неполная выгрузка", "описание": ", ".join(bundle.missing)})
     requests = bundle.tables["data_requests"]
-    for r in requests.loc[requests.gid.isin(ids)].itertuples():
+    selected_requests = requests if gid is None else requests.loc[requests.gid.isin(ids)]
+    for r in selected_requests.itertuples():
         limits.append({"тип": "запрос", "gid": str(r.gid), "описание": r.request, "причина": r.reason})
     return dict(zip(SHEETS, [display_frame(summary), features, display_frame(transactions), steps, criteria, pd.DataFrame(limits)]))
 

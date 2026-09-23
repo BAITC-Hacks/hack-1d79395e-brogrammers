@@ -137,6 +137,12 @@ def _signals(role: str, row, from_key: int, to_key: int) -> list[str]:
                 f"по калибровке (порог {TRUNC_TERMINAL_MIN_P:.0%})",
                 "колено 4, исходящие не видны",
             ]
+        if row.out_deg > 0:
+            return [
+                f"исходящие {row.pass_through:.2%} входящих (порог <{TERMINAL_PT_MAX:.0%})",
+                f"колено {row.depth}, исходящих связей {row.out_deg}",
+                f"прослежено {100 * _fraction(row.tracked_share_in):.0f}% входящих",
+            ]
         return [
             f"колено {row.depth}",
             f"исходящих связей {row.out_deg}",
@@ -173,6 +179,13 @@ def _counter_signals(
             f"отправил в {ratio:.1f} раза больше, чем получил в выгрузке: "
             "источник средств вне данных",
             f"внешние средства ×{ratio:.1f}",
+        ))
+    elif not row.is_seed and _number(row.pass_through) > EXT_FUNDING_PT:
+        ratio = _number(row.pass_through)
+        counters.append((
+            f"исходящие превышают наблюдаемые входящие ×{ratio:.1f}; "
+            "возможен начальный остаток или средства вне выборки",
+            f"исходящие/входящие ×{ratio:.1f}; баланс неполон",
         ))
     if row.is_seed:
         counters.append((

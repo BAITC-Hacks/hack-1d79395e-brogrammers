@@ -11,6 +11,7 @@ from streamlit.testing.v1 import AppTest
 from ui.data import load_bundle, display_frame, json_records, fingerprint, load_raw
 from ui.graphs import directed_graph, ego_html, bounded_nodes
 from ui.card import counterparties
+from ui.formatting import COLUMN_LABELS
 
 APP = Path(__file__).resolve().parents[1] / "app.py"
 
@@ -35,7 +36,9 @@ def test_top_and_node(app):
     assert app.session_state["gid"] == gid
     assert any(gid in c.value for c in app.caption)
     assert len(app.code) == 3
-    assert all(isinstance(x, str) and len(x) == 18 for x in app.dataframe[1].value.src)
+    source_column = COLUMN_LABELS['src']
+    incoming = next(frame.value for frame in app.dataframe if source_column in frame.value.columns)
+    assert all(isinstance(gid, str) and len(gid) == 18 for gid in incoming[source_column])
 
 
 def test_search_exact_and_missing(app):

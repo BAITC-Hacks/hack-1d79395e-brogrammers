@@ -25,8 +25,10 @@ LIMITS = [
 
 def inject_style(st):
     st.markdown("""<style>
-    .block-container {padding-top:2rem; max-width:1500px}
-    h1 {letter-spacing:-.035em} h2,h3 {letter-spacing:-.02em}
+    .block-container {padding-top:1.25rem; max-width:1500px; padding-bottom:2rem}
+    h1 {letter-spacing:-.035em; font-size:2rem} h2,h3 {letter-spacing:-.02em}
+    [data-testid="stRadio"] label {line-height:1.35}
+    [data-testid="stAlert"] {border-radius:10px}
     [data-testid="stMetric"] {background:#f1f5f9; border-radius:12px;
       padding:16px; color:#122237; border:1px solid #dce4ed}
     [data-testid="stSidebar"] {border-right:1px solid #dce4ed}

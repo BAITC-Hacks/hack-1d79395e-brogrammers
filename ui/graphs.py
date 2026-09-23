@@ -32,28 +32,46 @@ def bounded_nodes(graph, selected=None, hops=1, cap=250):
     return ids[:cap], len(ids)
 
 
+def _node_labels(ids, selected):
+    # A shared suffix length makes neighbors readable without ambiguous labels.
+    suffix_length = 9
+    while len({gid[-suffix_length:] for gid in ids}) < len(ids):
+        suffix_length += 1
+    return {gid: gid if gid == str(selected) or len(gid) <= suffix_length
+            else "…" + gid[-suffix_length:] for gid in ids}
+
+
 def ego_html(graph, selected=None, hops=1, cap=250):
     ids, total = bounded_nodes(graph, selected, hops, cap)
     subgraph = graph.subgraph(ids)
-    pos = nx.spring_layout(subgraph, seed=42, iterations=40, weight="sum_kzt") if ids else {}
+    labels = _node_labels(ids, selected)
+    # Coordinates express neighborhood structure. Raw money weights and a
+    # directed attraction matrix collapse one-way neighbors into the same spot.
+    # Keep the original directed subgraph for the arrows rendered below.
+    pos = nx.spring_layout(subgraph.to_undirected(), seed=42, iterations=100, weight=None) if ids else {}
     net = Network(height="570px", width="100%", directed=True, cdn_resources="in_line", bgcolor="#f8fafc", font_color="#172c44")
     for gid in ids:
         r = graph.nodes[gid]
         color = COLORS.get(r.get("role"), COLORS["peripheral"])
-        net.add_node(gid, label=gid, title=escape(f"{r.get('role_label', '')}\nПриоритет: {r.get('priority_score', 0):.3f}\nВходящие: {r.get('in_kzt', 0):,.0f} ₸"),
+        incomplete = r.get("visibility", "full") != "full"
+        net.add_node(gid, label=labels[gid],
+                     title=f"{escape(gid)}<br>{escape(str(r.get('role_label', '')))}<br>"
+                           f"Приоритет: {r.get('priority_score', 0):.3f}<br>Входящие: {r.get('in_kzt', 0):,.0f} ₸",
                      x=float(pos[gid][0])*600, y=float(pos[gid][1])*600,
                      size=15+18*float(r.get("priority_score", 0))+(10 if gid == str(selected) else 0),
-                     color={"background": color, "border": "#111827" if r.get("is_seed") else color},
-                     borderWidth=4 if r.get("is_seed") else 1,
-                     shape="dot", shapeProperties={"borderDashes": r.get("visibility", "full") != "full"})
+                     color={"background": color, "border": "#111827" if r.get("is_seed") or incomplete else color},
+                     borderWidth=4 if r.get("is_seed") else (2 if incomplete else 1),
+                     shape="dot", shapeProperties={"borderDashes": incomplete})
     for src, dst, r in subgraph.edges(data=True):
         amount = float(r.get("sum_kzt", 0))
         net.add_edge(src, dst, width=1+math.log1p(amount)/5,
                      title=escape(f"{src} → {dst}\n{amount:,.0f} ₸ · {r.get('n_tx', 0)} переводов"),
                      arrows="to", color="#8493a5")
-    net.set_options(json.dumps({"physics": {"enabled": False}, "interaction": {"hover": True},
+    net.set_options(json.dumps({"physics": {"enabled": False},
+                                "interaction": {"hover": True, "tooltipDelay": 100, "navigationButtons": True,
+                                                "keyboard": True, "zoomView": True, "dragView": True},
                                 "edges": {"smooth": {"enabled": True, "type": "dynamic"}},
-                                "nodes": {"font": {"size": 10}}}))
+                                "nodes": {"font": {"size": 18, "color": "#172c44", "strokeWidth": 3, "strokeColor": "#ffffff"}}}))
     html = net.generate_html()
     # Pyvis's stock template adds Bootstrap CDN even with inline vis.js.
     import re
@@ -80,7 +98,10 @@ def layer_figure(nodes, edges, graph_json, selected=None, network_layout=False):
     visible_edges = [r for r in edges if str(r["src"]) in coordinates and str(r["dst"]) in coordinates]
     chosen = sorted(visible_edges, key=lambda r: (-r["sum_kzt"], str(r["src"]), str(r["dst"])))[:400]
     max_amount = max((r["sum_kzt"] for r in chosen), default=1)
-    neighbors = {str(selected)} if selected is not None else set()
+    # A selected node can disappear after a role or chronology filter. In that
+    # case render the remaining nodes normally instead of dimming everything.
+    selected = str(selected) if selected is not None and str(selected) in coordinates else None
+    neighbors = {selected} if selected is not None else set()
     for r in visible_edges:
         if str(selected) in (str(r["src"]), str(r["dst"])):
             neighbors.update([str(r["src"]), str(r["dst"])])
@@ -100,18 +121,27 @@ def layer_figure(nodes, edges, graph_json, selected=None, network_layout=False):
     for role, group in nodes.groupby("role"):
         records = group.to_dict("records")
         ids = [str(r["gid"]) for r in records]
+        role_rgb = tuple(int(COLORS[role][i:i + 2], 16) for i in (1, 3, 5))
+        fills = [f"rgba({role_rgb[0]},{role_rgb[1]},{role_rgb[2]},0.55)"
+                 if r.get("is_seed") and r.get("visibility", "full") != "full" else COLORS[role]
+                 for r in records]
         figure.add_trace(go.Scatter(
             x=[coordinates[g][0] for g in ids], y=[coordinates[g][1] for g in ids], mode="markers", name=LABELS[role],
-            customdata=[[g, r["role_label"], float(r["priority_score"]), escape(str(r["evidence"]))] for g,r in zip(ids,records)],
-            hovertemplate="%{customdata[0]}<br>%{customdata[1]}<br>Приоритет %{customdata[2]:.3f}<br>%{customdata[3]}<extra></extra>",
-            marker=dict(color=COLORS[role], size=[max(4, min(22, 4+math.log1p(float(r.get("tracked_in", 0)))) ) for r in records],
+            customdata=[[g, r["role_label"], float(r["priority_score"]), escape(str(r["evidence"])),
+                         "Неполная наблюдаемость" if r.get("visibility", "full") != "full" else "Полная наблюдаемость в выгрузке"]
+                        for g,r in zip(ids,records)],
+            hovertemplate="%{customdata[0]}<br>%{customdata[1]}<br>Приоритет %{customdata[2]:.3f}<br>%{customdata[3]}<br>%{customdata[4]}<extra></extra>",
+            marker=dict(color=fills, size=[max(4, min(22, 4+math.log1p(float(r.get("tracked_in", 0)))) ) for r in records],
                         opacity=[1 if not neighbors or g in neighbors else .2 for g in ids],
-                        line=dict(color=["#111827" if r.get("is_seed") else "#64748b" for r in records],
-                                  width=[3 if r.get("rank", 9999) <= 30 or r.get("is_seed") else .5 for r in records]))))
+                        line=dict(color=[("#111827" if r.get("is_seed") else
+                                          "rgba(17,24,39,0.45)" if r.get("visibility", "full") != "full"
+                                          else "#64748b") for r in records],
+                                  width=[4 if r.get("is_seed") else 3 if r.get("rank", 9999) <= 30 else
+                                         2 if r.get("visibility", "full") != "full" else .5 for r in records]))))
     if not network_layout:
         figure.add_vrect(x0=3.7, x1=4.3, fillcolor="#e2e8f0", opacity=.4, line_width=0, layer="below")
         figure.add_annotation(x=4, y=1.09, text="Обрыв обхода:<br>исходящие не собраны", showarrow=False, font=dict(size=11, color="#64748b"))
-        figure.update_xaxes(tickvals=list(range(5)), ticktext=["Seed · 0", "Колено 1", "Колено 2", "Колено 3", "Колено 4"], range=[-.4,4.4])
+        figure.update_xaxes(tickvals=list(range(5)), ticktext=["Исходные клиенты (seed)", "Колено 1", "Колено 2", "Колено 3", "Колено 4"], range=[-.4,4.4])
     figure.update_yaxes(visible=False)
     figure.update_layout(height=650, paper_bgcolor="white", plot_bgcolor="#fafcfe", margin=dict(l=10,r=10,t=50,b=30),
                          legend=dict(orientation="h", y=-.12), clickmode="event+select")

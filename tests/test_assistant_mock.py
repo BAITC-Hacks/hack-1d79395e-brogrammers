@@ -91,3 +91,73 @@ def test_loop_budget(graph):
     result=ask_graph('Проверь','out_stub',client=NS(responses=fake),model='mock',max_rounds=1)
     assert 'лимит шагов' in result['text']
     assert validate(gid,[gid]) == gid
+
+
+def test_cluster_hypothesis_references_are_grounded_only_for_members(graph):
+    cid = int(graph.nodes.groupby('cluster_id').size().idxmax())
+    members = graph.nodes.loc[graph.nodes.cluster_id.eq(cid), 'gid'].astype(str).tolist()
+    assert len(members) > 5
+    outside = str(graph.nodes.loc[~graph.nodes.cluster_id.eq(cid), 'gid'].iloc[0])
+    referenced = members[5]
+    unknown = '999999999999999999'
+    table = graph.bundle.tables['clusters']
+    table.loc[table.cluster_id.eq(cid), 'top_gids'] = ';'.join(members[:5])
+    table.loc[table.cluster_id.eq(cid), 'hypothesis'] = f'Признаки сбора у {referenced}; непроверенные {outside} и {unknown}'
+    result = graph.cluster_info(cid)
+    assert referenced in result['gids']
+    assert outside not in result['gids'] and unknown not in result['gids']
+    checked = validate(result['cluster']['hypothesis'], result['gids'])
+    assert f'непроверенная ссылка ({referenced})' not in checked
+    assert f'непроверенная ссылка ({outside})' in checked
+    assert f'непроверенная ссылка ({unknown})' in checked
+
+
+def test_real_cluster_motif_reference_survives_mock_response():
+    import re
+    graph = GraphTools('out')
+    for row in graph.bundle.tables['clusters'].itertuples():
+        motif_ids = set(re.findall(r'(?<!\d)\d{18}(?!\d)', row.hypothesis))
+        extra = motif_ids - set(row.top_gids.split(';'))
+        if extra:
+            cid = int(row.cluster_id)
+            gid = sorted(extra)[0]
+            break
+    else:
+        pytest.fail('Expected a real motif participant outside cluster top-five')
+    assert gid in graph.cluster_info(cid)['gids']
+    unknown = '999999999999999999'
+    fake = FakeResponses([
+        response('r1', [call('cluster_info', json.dumps({'cluster_id': cid}))]),
+        response('r2', text=f'Гипотеза по {gid}; {unknown}'),
+    ])
+    result = ask_graph('Объясни кластер', 'out', client=NS(responses=fake), model='mock')
+    assert gid in result['gids']
+    assert f'непроверенная ссылка ({gid})' not in result['text']
+    assert f'непроверенная ссылка ({unknown})' in result['text']
+
+
+def test_all_real_cluster_hypotheses_ground_members_outside_top_five():
+    """B-004's full-cluster audit also rejects a newly injected unknown gid."""
+    import re
+
+    graph = GraphTools('out')
+    clusters = graph.bundle.tables['clusters']
+    assert not clusters.empty
+    examined = set()
+    for row in clusters.itertuples():
+        cid = int(row.cluster_id)
+        result = graph.cluster_info(cid)
+        mentioned = set(re.findall(r'(?<!\d)\d{18}(?!\d)', str(row.hypothesis)))
+        members = set(graph.nodes.loc[graph.nodes.cluster_id.eq(cid), 'gid'].astype(str))
+        assert mentioned <= members
+        assert mentioned <= set(result['gids'])
+        assert 'непроверенная ссылка' not in validate(str(row.hypothesis), result['gids'])
+        examined.add(cid)
+    assert examined == set(clusters.cluster_id)
+
+    cid = int(clusters.iloc[0].cluster_id)
+    unknown = '999999999999999999'
+    clusters.loc[clusters.cluster_id.eq(cid), 'hypothesis'] += f' {unknown}'
+    result = graph.cluster_info(cid)
+    assert unknown not in result['gids']
+    assert f'непроверенная ссылка ({unknown})' in validate(result['cluster']['hypothesis'], result['gids'])

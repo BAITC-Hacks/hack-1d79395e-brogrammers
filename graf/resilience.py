@@ -7,13 +7,15 @@ from pathlib import Path
 import random
 
 import networkx as nx
+import numpy as np
 import pandas as pd
 
-from graf.config import RANDOM_SEED
+from graf.config import RANDOM_SEED, RANDOM_TRIALS
 
 
 CURVE_COLUMNS = (
     "strategy", "n_removed", "seed_reach_share", "largest_wcc",
+    "n_trials", "seed_reach_p05", "seed_reach_p95",
 )
 REMOVAL_COUNTS = (0, 5, 10, 20, 23, 50)
 
@@ -88,8 +90,19 @@ def removal_curve(
     *,
     n_values: tuple[int, ...] = REMOVAL_COUNTS,
     random_seed: int = RANDOM_SEED,
+    random_trials: int = RANDOM_TRIALS,
 ) -> pd.DataFrame:
-    """Compare seed reach after removing top non-seed nodes by each strategy."""
+    """Compare directed seed reach under non-seed node-removal scenarios.
+
+    Random rows contain the mean of ``random_trials`` reproducible shuffled
+    orders. The same order supplies all removal counts within one trial.
+    ``seed_reach_p05/p95`` are empirical linear-interpolated quantiles of trial
+    outcomes, not confidence intervals of the mean. ``largest_wcc`` is also a
+    mean for random rows; deterministic rows retain integer-valued sizes.
+    """
+    if type(random_trials) is not int or random_trials < 1:
+        raise ValueError("random_trials must be a positive integer")
+    n_values = tuple(n_values)
     seeds = set(map(int, features.loc[features["is_seed"], "gid"]))
     baseline = seed_reach(graph, seeds)
     denominator = len(baseline)
@@ -100,27 +113,49 @@ def removal_curve(
         rankings[strategy] = candidates.sort_values(
             [column, "gid"], ascending=[False, True], kind="stable"
         )["gid"].astype(int).tolist()
-    rankings["random"] = candidates["gid"].astype(int).sort_values().tolist()
-    random.Random(random_seed).shuffle(rankings["random"])
+
+    def measurement(removed):
+        reached = seed_reach(graph, seeds, removed)
+        share = len(reached & baseline) / denominator if denominator else 0.0
+        return share, _largest_wcc(graph, removed)
 
     rows = []
     for strategy, ordered in rankings.items():
         for count in n_values:
-            removed = set(ordered[: max(0, count)])
-            reached = seed_reach(graph, seeds, removed)
+            removed = set(ordered[:max(0, count)])
+            share, largest = measurement(removed)
             rows.append({
-                "strategy": strategy,
-                "n_removed": len(removed),
-                "seed_reach_share": (
-                    len(reached & baseline) / denominator if denominator else 0.0
-                ),
-                "largest_wcc": _largest_wcc(graph, removed),
+                "strategy": strategy, "n_removed": len(removed),
+                "seed_reach_share": share, "largest_wcc": largest,
+                "n_trials": 1, "seed_reach_p05": share, "seed_reach_p95": share,
             })
+
+    random_candidates = candidates["gid"].astype(int).sort_values().tolist()
+    counts = [min(len(random_candidates), max(0, count)) for count in n_values]
+    samples = [[] for _ in counts]
+    rng = random.Random(random_seed)
+    # The zero-removal outcome is identical in every trial and can be reused.
+    unchanged = measurement(set()) if 0 in counts else None
+    for _ in range(random_trials):
+        ordered = random_candidates.copy()
+        rng.shuffle(ordered)
+        for index, count in enumerate(counts):
+            samples[index].append(unchanged if count == 0 else measurement(set(ordered[:count])))
+    for count, outcomes in zip(counts, samples):
+        values = np.asarray(outcomes, dtype=float)
+        shares = values[:, 0]
+        p05, p95 = np.quantile(shares, [0.05, 0.95], method="linear")
+        rows.append({
+            "strategy": "random", "n_removed": count,
+            "seed_reach_share": float(shares.mean()),
+            "largest_wcc": float(values[:, 1].mean()),
+            "n_trials": random_trials,
+            "seed_reach_p05": float(p05), "seed_reach_p95": float(p95),
+        })
     rows.append({
-        "strategy": "all_seeds",
-        "n_removed": len(seeds),
-        "seed_reach_share": 0.0,
-        "largest_wcc": _largest_wcc(graph, seeds),
+        "strategy": "all_seeds", "n_removed": len(seeds),
+        "seed_reach_share": 0.0, "largest_wcc": _largest_wcc(graph, seeds),
+        "n_trials": 1, "seed_reach_p05": 0.0, "seed_reach_p95": 0.0,
     })
     return pd.DataFrame(rows, columns=CURVE_COLUMNS)
 

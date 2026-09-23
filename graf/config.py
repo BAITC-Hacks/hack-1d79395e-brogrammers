@@ -57,3 +57,5 @@ MULT = {
 CONF_LEVELS = (0.5, 0.75)
 TOP_N = 30
 RANDOM_SEED = 42
+# Reproducible random node-removal orders for the resilience comparison.
+RANDOM_TRIALS = 100

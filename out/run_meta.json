@@ -48,6 +48,7 @@
       "temporal": 0.1
     },
     "RANDOM_SEED": 42,
+    "RANDOM_TRIALS": 100,
     "ROLE_WEIGHT": {
       "coordinator": 1.0,
       "consolidator": 0.8,
@@ -67,22 +68,22 @@
     "TRUNC_TERMINAL_MIN_P": 0.6
   },
   "stages_sec": {
-    "load": 0.0928,
-    "features": 5.0116,
-    "temporal": 0.3224,
-    "truncation": 0.0146,
-    "flow": 0.187,
-    "roles": 0.1165,
-    "clusters": 0.474,
-    "fingerprints": 0.6011,
-    "priority": 0.8876,
-    "resilience": 0.5848,
-    "outputs": 17.7705,
-    "evidence_xlsx": 0.9621,
-    "check": 0.1386
+    "load": 0.0675,
+    "features": 4.9295,
+    "temporal": 0.2676,
+    "truncation": 0.0189,
+    "flow": 0.215,
+    "roles": 0.1512,
+    "clusters": 0.5669,
+    "fingerprints": 0.5177,
+    "priority": 0.8146,
+    "resilience": 9.1236,
+    "outputs": 15.7798,
+    "evidence_xlsx": 0.9649,
+    "check": 0.1398
   },
   "skipped_stages": [],
-  "total_sec": 27.1639,
+  "total_sec": 33.5574,
   "rows": {
     "nodes_roles": 2248,
     "clusters": 107,

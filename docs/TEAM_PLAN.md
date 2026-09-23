@@ -121,7 +121,7 @@ pytest>=8
 |---|---|
 | `seeds_review.csv` | gid, role, role_label, evidence — seed выше нижнего уровня |
 | `paths.csv` | target_gid, path_rank (1–3), seed_gid, hops, path_gids ("g0>g1>g2"), path_days ("3>4>6"), path_amounts ("50000>48000"), bottleneck_kzt — для топ-30 |
-| `resilience.csv` | strategy (priority / betweenness / out_deg / in_deg / random / all_seeds), n_removed, seed_reach_share, largest_wcc |
+| `resilience.csv` | strategy (priority / betweenness / out_deg / in_deg / random / all_seeds), n_removed, seed_reach_share, largest_wcc; дополнение после аудита: n_trials, seed_reach_p05, seed_reach_p95 |
 | `ablation_links.csv` | level (topology / chrono_any / chrono_7d / chrono_2d), n_nonseed_nodes, share |
 | `tracked_by_depth.csv` | depth, tracked_kept_kzt |
 | `truncation_calibration.csv` | bucket, n, p_forward |
@@ -493,3 +493,7 @@ truncation_calibration.csv, resilience.csv, run_meta.json), ничего не в
 3. **A, 1:30–3:30.** Три узла из `docs/node_review.md`: топ-1, топ-2 с признаками консолидации и один кандидат в организаторы с контр-сигналом. В коде gid не хардкодить — выбрать в интерфейсе по поиску.
 4. **B, 3:30–4:20.** Скачать `evidence.xlsx` и показать листы «Транзакции-основания» и «Пути денег». Ассистент: «кто собирает деньги с этих пятерых?».
 5. **A, 4:20–5:00.** Ограничения и что запросить следующим. Жюри называет случайный gid → поиск → карточка → ворота роли и числа.
+
+## Дополнение по аудиту 2026-09-23
+
+Случайная стратегия устойчивости усредняется по RANDOM_TRIALS=100 воспроизводимым перестановкам не-seed. seed_reach_p05/p95 — эмпирические процентили исходов, не доверительный интервал среднего. largest_wcc для random — среднее. Детерминированные стратегии, пороги ролей и приоритеты сохранены. B-006 добавляет переходы по контрагентам, возврат и XLSX непосредственно из карточки.

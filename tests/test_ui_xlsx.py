@@ -59,3 +59,39 @@ def test_transaction_reasons_and_literal_text():
     wb = load_workbook(BytesIO(workbook_bytes({'literal':pd.DataFrame({'evidence':['=1+1']})})))
     assert wb['literal']['A2'].data_type == 's'
     assert wb['literal']['A2'].value == '=1+1'
+
+
+def test_full_workbook_keeps_all_requests_but_node_export_stays_scoped():
+    bundle = load_bundle('out')
+    expected = bundle.tables['data_requests']
+    frames = evidence_frames('data', 'out')
+    requests = frames['Границы данных'].loc[lambda frame: frame['тип'].eq('запрос')]
+    actual = {(row.gid, row.описание, row.причина) for row in requests.itertuples()}
+    expected_rows = {(str(row.gid), row.request, row.reason) for row in expected.itertuples()}
+    assert len(requests) == len(expected)
+    assert actual == expected_rows
+    top_ids = set(bundle.tables['top_nodes'].gid.astype(str))
+    outside_top = next(gid for gid, _, _ in expected_rows if gid not in top_ids)
+    node_limits = evidence_frames('data', 'out', outside_top)['Границы данных']
+    node_requests = node_limits.loc[node_limits['тип'].eq('запрос')]
+    assert set(node_requests.gid) == {outside_top}
+    assert len(node_requests) == int(expected.gid.eq(int(outside_top)).sum())
+
+
+def test_role_criteria_use_runtime_gates_and_explain_seed_exception(monkeypatch):
+    from graf import config
+    from graf.evidence_xlsx import role_criteria
+    monkeypatch.setattr(config, 'CONS_MIN_IN_DEG', 9)
+    monkeypatch.setattr(config, 'COORD_MIN_KEY_LINKS', 4)
+    monkeypatch.setattr(config, 'PAYER_MAX_KZT', 75000)
+    criteria = role_criteria().set_index('роль')
+    assert 'in_deg ≥ 9' in criteria.loc['consolidator', 'ворота']
+    assert 'from_key ≥ 4 и to_key ≥ 4' in criteria.loc['coordinator', 'ворота']
+    assert 'out_kzt ≤ 75000' in criteria.loc['payer', 'ворота']
+    terminal = criteria.loc['terminal', 'ворота']
+    assert 'depth ≤ 3; in_deg ≥ 1' in terminal
+    assert 'не seed и pass_through < 0.1' in terminal
+    assert '1−p_forward ≥ 0.6' in terminal
+    assert 'не seed' in criteria.loc['transit', 'ворота']
+    assert 'max(0,1−|1−pass_through|/0.2)' in criteria.loc['transit', 'скор']
+    assert 'coordinator → payer' in criteria.loc['Порядок выбора', 'ворота']

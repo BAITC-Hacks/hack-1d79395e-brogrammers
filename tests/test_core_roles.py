@@ -168,3 +168,32 @@ def test_coordinator_evidence_names_the_gate_that_actually_passed(tmp_path: Path
     assert "ключевых соседей 3→3 (порог 3/3)" in result.loc[12, "evidence"]
     assert "связей вход/выход 3/3" in result.loc[12, "evidence"]
     assert "связей вход/выход 5/10 (порог 5/10)" in result.loc[1, "evidence"]
+
+
+def test_observed_terminal_with_outgoing_explains_ratio_gate(tmp_path: Path):
+    features, graph = _case()
+    result = assign_roles(features, graph, tmp_path / "missing.csv").set_index("gid")
+    assert result.loc[14, "role"] == "terminal"
+    evidence = result.loc[14, "evidence"]
+    assert "исходящие 2.00% входящих (порог <10%)" in evidence
+    assert "колено 2, исходящих связей 1" in evidence
+    assert len(evidence) <= 200
+    # A zero-output terminal keeps its direct observed gate; seed pt is unused.
+    assert "исходящих связей 0" in result.loc[5, "evidence"]
+    assert "порог <10%" not in result.loc[5, "evidence"]
+    assert "порог <10%" not in result.loc[16, "evidence"]
+
+
+def test_excess_outflow_warns_even_when_external_visibility_gate_is_not_met(tmp_path: Path):
+    features, graph = _case()
+    baseline = assign_roles(features, graph, tmp_path / "missing.csv").set_index("gid")
+    features.loc[features.gid.eq(9), "tracked_out_share"] = 0.25
+    result = assign_roles(features, graph, tmp_path / "missing.csv").set_index("gid")
+    row = result.loc[9]
+    assert row.visibility == "full"
+    assert row.role == baseline.loc[9, "role"]
+    assert row.role_score == baseline.loc[9, "role_score"]
+    assert "исходящие превышают наблюдаемые входящие ×23.0" in row.counter_signals
+    assert "возможен начальный остаток или средства вне выборки" in row.counter_signals
+    assert "исходящие/входящие ×23.0; баланс неполон" in row.evidence
+    assert "превышают наблюдаемые входящие" not in result.loc[1, "counter_signals"]
