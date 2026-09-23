@@ -53,7 +53,10 @@ def _outputs(context: dict) -> None:
 
 
 def _evidence_xlsx(context: dict) -> None:
-    build_evidence(context["data_dir"], context["out_dir"])
+    try:
+        build_evidence(context["data_dir"], context["out_dir"])
+    except Exception as error:
+        print(f"evidence_xlsx: предупреждение ({error})")
 
 
 def _check(context: dict) -> None:

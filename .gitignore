@@ -4,3 +4,4 @@ out_stub/
 .env
 *.pyc
 .pytest_cache/
+out_local/
