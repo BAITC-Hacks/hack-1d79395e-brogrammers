@@ -1,1 +1,1 @@
-"""Streamlit UI package; track B owns its implementation."""
+"""Track B presentation layer."""
